@@ -1,0 +1,5 @@
+{
+  "status": "posted",
+  "text": "T3Code nightly v0.0.43-nightly.20260919.1962\n\n- fix(mobile): adapt workspace navigation and expand controls\n- chore(mobile): add dev client script with preview environment\n- fix: detect installed editors outside PATH\n- fix(web): show plain text in collapsed thought previews",
+  "tweet_id": "2101310179715199295"
+}
