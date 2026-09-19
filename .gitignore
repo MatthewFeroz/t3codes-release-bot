@@ -1,0 +1,11 @@
+.env
+.env.*
+*.dpapi
+*.lock
+*.tmp
+__pycache__/
+latest-preview.txt
+*.log
+*.log.*
+*.sqlite3-wal
+*.sqlite3-shm
