@@ -1,4 +1,4 @@
-"""T3Code nightly -> one X post containing exact PR titles."""
+"""T3Code nightly -> X post (or thread) containing exact PR titles."""
 from __future__ import annotations
 
 import argparse
@@ -24,6 +24,7 @@ ROOT = Path(__file__).resolve().parent
 DATA = Path(os.environ.get('BOT_DATA_DIR', str(Path(os.environ.get('LOCALAPPDATA', str(Path.home()))) / 'T3CodesReleaseBot')))
 REPO = 'pingdotgg/t3code'
 LOG = logging.getLogger('release-bot')
+LIMIT = 280
 
 
 def now():
@@ -129,14 +130,28 @@ def release_items(release, github):
     return prs, extras
 
 
+def split_posts(header, lines):
+    # Pack whole title lines into posts of at most LIMIT characters. Titles are
+    # never summarized, truncated or split across posts; a single title too long
+    # for one post yields an oversized post, which publish() skips.
+    posts, current = [], [header + '\n']
+    for line in lines:
+        # The first line of each post always goes in, even if it alone is too long.
+        if len(current) > 1 and weight('\n'.join(current + [line])) > LIMIT:
+            posts.append('\n'.join(current))
+            current = []
+        current.append(line)
+    posts.append('\n'.join(current))
+    return posts
+
+
 def build_plan(release, github):
     prs, extras = release_items(release, github)
     if not prs:
         raise RuntimeError('No PR list available; waiting for release information.')
-    text = 'T3Code nightly ' + release['tag_name'] + '\n\n'
-    text += '\n'.join('- ' + pr['title'] for pr in prs)
-    # Preserve every title exactly: never summarize, truncate or split.
-    return {'release': release, 'prs': prs, 'extras': extras, 'posts': [text]}
+    header = 'T3Code nightly ' + release['tag_name']
+    posts = split_posts(header, ['- ' + pr['title'] for pr in prs])
+    return {'release': release, 'prs': prs, 'extras': extras, 'posts': posts}
 
 
 class Store:
@@ -226,7 +241,7 @@ class X:
     def create(self, text, parent):
         data = {'text': text}
         if parent:
-            raise RuntimeError('Thread replies are disabled.')
+            data['reply'] = {'in_reply_to_tweet_id': parent}
         result = self.call('tweets', data)
         if not result.get('data', {}).get('id'):
             raise RuntimeError('X response did not confirm a post ID.')
@@ -250,19 +265,36 @@ class X:
         raise RuntimeError('Uncertain post delivery: awaiting reconciliation. No duplicate was sent.')
 
 
+def skip_backlog(store):
+    # One-time: releases held under the old single-post rule are marked skipped
+    # (done=2) instead of being posted late as threads.
+    if store.meta('thread_backlog_skipped') is not None:
+        return
+    for release in store.db.execute('SELECT * FROM releases WHERE done=0').fetchall():
+        rows = store.db.execute('SELECT * FROM posts WHERE release_id=?', (release['id'],)).fetchall()
+        if all(r['status'] == 'pending' for r in rows) and any(weight(r['text']) > LIMIT for r in rows):
+            with store.db:
+                store.db.execute('UPDATE releases SET done=2 WHERE id=?', (release['id'],))
+            LOG.info('Skipped held backlog release %s', release['tag'])
+    store.meta('thread_backlog_skipped', now())
+
+
 def publish(store, api, sleep=time.sleep):
     pending = store.db.execute('SELECT * FROM releases WHERE done=0 ORDER BY published,id').fetchall()
     if not pending:
         return
     user = None
-    held = []
+    skipped = []
     for release in pending:
         rows = store.db.execute('SELECT * FROM posts WHERE release_id=?', (release['id'],)).fetchall()
-        if len(rows) != 1:
-            raise RuntimeError('Legacy thread plan blocked; regenerate it as one post before publishing.')
-        if weight(rows[0]['text']) > 280:
-            held.append(release['tag'])
-            LOG.error('Held %s: exact title list is %s characters; no thread or shortened titles will be posted.', release['tag'], weight(rows[0]['text']))
+        if any(weight(r['text']) > LIMIT for r in rows):
+            # Only possible when one title alone exceeds the limit. Skip it so
+            # the failure is reported once rather than on every run.
+            with store.db:
+                store.db.execute('UPDATE releases SET done=2 WHERE id=?', (release['id'],))
+            store.checkpoint()
+            skipped.append(release['tag'])
+            LOG.error('Skipped %s: a single title exceeds %s characters and titles are never truncated.', release['tag'], LIMIT)
             continue
         if user is None:
             user = api.verify()
@@ -299,8 +331,8 @@ def publish(store, api, sleep=time.sleep):
         with store.db:
             store.db.execute('UPDATE releases SET done=1 WHERE id=?', (release['id'],))
         store.checkpoint()
-    if held:
-        raise RuntimeError('Releases held because exact titles exceed 280 characters: ' + ', '.join(held))
+    if skipped:
+        raise RuntimeError('Releases skipped because a single title exceeds the post limit: ' + ', '.join(skipped))
 
 
 @contextlib.contextmanager
@@ -370,6 +402,7 @@ def main(argv=None):
                 plan = build_plan(release, github)
                 store.queue(plan)
                 LOG.info('Queued %s with %s PRs and %s posts', release['tag_name'], len(plan['prs']), len(plan['posts']))
+            skip_backlog(store)
             publish(store, X())
             LOG.info('Run complete.')
             return 0

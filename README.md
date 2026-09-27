@@ -13,9 +13,11 @@ T3Code nightly v0.0.43-nightly.20260919.1962
 - fix(web): show plain text in collapsed thought previews
 ```
 
-One release, one post. Each PR title is copied verbatim, in release-note order. No descriptions, summaries, authors, extra announcements, links, or thread replies are added. The formatter never abbreviates, truncates or splits titles.
+One release, one post when the list fits. Each PR title is copied verbatim, in release-note order. No descriptions, summaries, authors, extra announcements or links are added. The formatter never abbreviates or truncates titles, and never splits a title across posts.
 
-X's standard post limit is 280 weighted characters. If the complete list is longer, that release is held and the Action reports it. It will not silently publish a partial list or a thread. This means some large releases cannot be posted under the current limit. Shorter subsequent releases can still publish.
+X's standard post limit is 280 weighted characters. If the complete list is longer, it is posted as a thread: the first post carries the header and as many whole titles as fit, and each reply continues with the next whole titles. If a single title is too long to fit in a post on its own, that release is skipped (`done=2`) and the Action fails once to report it; later runs carry on normally.
+
+Releases held under the old single-post rule (Sep 20 to 27, 2026) were marked skipped when threads were introduced and will not be posted.
 
 ## Hosting and state
 
@@ -23,7 +25,7 @@ Private repository: https://github.com/MatthewFeroz/t3codes-release-bot
 
 The workflow is `.github/workflows/nightly.yml`; it supports an hourly schedule and manual dispatch. A workflow in this repository cannot directly receive release events from the upstream repository without upstream access, so GitHub checks the release feed. Scheduled Actions can be delayed.
 
-`.bot-state/state.sqlite3` preserves the starting release, queued posts and published tweet IDs. Existing published-release history was migrated, so the earlier thread will not be reposted. Any unfinished legacy thread is explicitly blocked.
+`.bot-state/state.sqlite3` preserves the starting release, queued posts and published tweet IDs. Existing published-release history was migrated, so the earlier thread will not be reposted.
 
 OAuth credentials are stored in `.bot-state/x-vault.enc`, encrypted with Fernet. The encryption key is the GitHub Actions secret `X_VAULT_KEY`. Replacement refresh tokens are encrypted and committed back automatically. Credentials never appear in source, logs or command arguments. Local DPAPI credentials are retained as a migration backup; GitHub's rotating vault is now authoritative.
 

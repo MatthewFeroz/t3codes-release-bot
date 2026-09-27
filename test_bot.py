@@ -3,7 +3,7 @@ from pathlib import Path
 import tempfile
 import unittest
 
-from bot import ApiError, Store, build_plan, clean, publish, weight
+from bot import ApiError, Store, build_plan, clean, publish, skip_backlog, weight
 
 
 class FakeGitHub:
@@ -69,13 +69,12 @@ class BotTests(unittest.TestCase):
         self.assertEqual(len(api.calls), 2)
         self.assertEqual(self.store.db.execute('SELECT done FROM releases').fetchone()[0], 1)
 
-    def test_legacy_thread_is_never_resumed(self):
+    def test_thread_posts_reply_to_previous_post(self):
         with self.store.db:
-            self.store.db.execute("INSERT INTO posts(release_id,position,text) VALUES (1,1,'old reply')")
+            self.store.db.execute("INSERT INTO posts(release_id,position,text) VALUES (1,1,'- second')")
         api = FakeX()
-        with self.assertRaisesRegex(RuntimeError, 'Legacy thread'):
-            publish(self.store, api, sleep=lambda _: None)
-        self.assertEqual(api.calls, [])
+        publish(self.store, api, sleep=lambda _: None)
+        self.assertEqual(api.calls, [(self.plan['posts'][0], None), ('- second', '1')])
 
     def test_every_release_pr_once_and_no_contributor_noise(self):
         release = dict(self.plan['release'], body="## What's Changed\n* fix by @a in https://github.com/pingdotgg/t3code/pull/123\n* fix by @b in https://github.com/pingdotgg/t3code/pull/456\n## New Contributors\n* https://github.com/pingdotgg/t3code/pull/123")
@@ -85,19 +84,44 @@ class BotTests(unittest.TestCase):
         self.assertEqual(plan['posts'][0], 'T3Code nightly v1-nightly.20260919.1\n\n- fix(web): preserve drafts\n- fix(web): preserve drafts')
         self.assertFalse(any('90 tests' in p or 'https://' in p for p in plan['posts']))
 
-    def test_long_release_is_held_without_splitting_or_truncating(self):
+    def test_long_release_splits_into_thread_of_whole_titles(self):
+        class ManyGitHub:
+            def get(self, path):
+                number = int(path.split('/')[-1])
+                return {'number': number, 'title': f'fix(web): change number {number} ' + 'x' * 60, 'body': ''}
+        body = '\n'.join(f'* change in https://github.com/pingdotgg/t3code/pull/{n}' for n in range(100, 110))
+        plan = build_plan(dict(self.plan['release'], id=2, body=body), ManyGitHub())
+        self.assertGreater(len(plan['posts']), 1)
+        self.assertTrue(all(weight(p) <= 280 for p in plan['posts']))
+        self.assertTrue(plan['posts'][0].startswith('T3Code nightly v1-nightly.20260919.1\n\n- '))
+        lines = [l for p in plan['posts'] for l in p.splitlines() if l.startswith('- ')]
+        self.assertEqual(lines, ['- ' + ManyGitHub().get(f'pulls/{n}')['title'] for n in range(100, 110)])
+
+    def test_single_oversized_title_is_skipped_once_not_truncated(self):
         class LongGitHub:
             def get(self, path):
                 return {'number': 123, 'title': 'fix: ' + '\u754c' * 300, 'body': ''}
         release = dict(self.plan['release'], id=2, body='* change in https://github.com/pingdotgg/t3code/pull/123')
         plan = build_plan(release, LongGitHub())
-        self.assertEqual(len(plan['posts']), 1)
         self.assertEqual(plan['posts'][0].count('\u754c'), 300)
         self.store.queue(plan)
         api = FakeX()
-        with self.assertRaisesRegex(RuntimeError, 'held'):
+        with self.assertRaisesRegex(RuntimeError, 'skipped'):
             publish(self.store, api, sleep=lambda _: None)
         self.assertEqual(len(api.calls), 1)  # the short release still posts
+        self.assertEqual(self.store.db.execute('SELECT done FROM releases WHERE id=2').fetchone()[0], 2)
+        publish(self.store, api, sleep=lambda _: None)  # later runs no longer fail
+
+    def test_backlog_held_under_single_post_rule_is_skipped(self):
+        long_plan = {'release': {'id': 2, 'tag_name': 'v1-nightly.20260920.2', 'published_at': '2026-09-20T00:00:00Z'},
+                     'posts': ['T3Code nightly v1-nightly.20260920.2\n\n' + '- fix: thing\n' * 40]}
+        self.store.queue(long_plan)
+        skip_backlog(self.store)
+        done = dict(self.store.db.execute('SELECT id, done FROM releases').fetchall())
+        self.assertEqual(done, {1: 0, 2: 2})
+        with self.store.db:
+            self.store.db.execute('UPDATE releases SET done=0 WHERE id=2')
+        skip_backlog(self.store)  # runs only once
         self.assertEqual(self.store.db.execute('SELECT done FROM releases WHERE id=2').fetchone()[0], 0)
 
     def test_pr_titles_are_verbatim_and_bodies_are_not_used(self):
