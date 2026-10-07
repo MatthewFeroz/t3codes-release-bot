@@ -5,6 +5,7 @@ import argparse
 import contextlib
 import datetime as dt
 import html
+import http.client
 import json
 import logging
 from logging.handlers import RotatingFileHandler
@@ -20,6 +21,8 @@ import urllib.error
 import urllib.parse
 import urllib.request
 
+from api_diagnostics import error_summary
+
 ROOT = Path(__file__).resolve().parent
 DATA = Path(os.environ.get('BOT_DATA_DIR', str(Path(os.environ.get('LOCALAPPDATA', str(Path.home()))) / 'T3CodesReleaseBot')))
 REPO = 'pingdotgg/t3code'
@@ -32,9 +35,13 @@ def now():
 
 
 class ApiError(RuntimeError):
-    def __init__(self, status, service):
+    def __init__(self, status, service, diagnostic=None):
         self.status = status
-        super().__init__(f'{service} HTTP {status}')
+        self.diagnostic = diagnostic
+        message = f'{service} HTTP {status}'
+        if diagnostic is not None:
+            message += ' ' + json.dumps(diagnostic, sort_keys=True)
+        super().__init__(message)
 
 
 def request_json(url, *, headers=None, payload=None):
@@ -44,9 +51,9 @@ def request_json(url, *, headers=None, payload=None):
         with urllib.request.urlopen(req, timeout=45) as response:
             return json.load(response)
     except urllib.error.HTTPError as exc:
-        # Never log request headers, credentials or untrusted response bodies.
-        raise ApiError(exc.code, urllib.parse.urlsplit(url).hostname) from None
-    except (urllib.error.URLError, TimeoutError, OSError):
+        diagnostic = error_summary(exc, url, req.get_method())
+        raise ApiError(exc.code, 'API', diagnostic) from None
+    except (urllib.error.URLError, TimeoutError, OSError, http.client.HTTPException):
         raise RuntimeError('Network request failed; delivery may be uncertain.') from None
 
 
@@ -265,6 +272,71 @@ class X:
         raise RuntimeError('Uncertain post delivery: awaiting reconciliation. No duplicate was sent.')
 
 
+class DiagnosticX(X):
+    """GET-only client with no refresh, credential write or checkpoint path."""
+    def authenticate(self, force=False):
+        if force:
+            raise RuntimeError('Diagnostic stopped: token rejected; refresh is disabled.')
+        if not os.environ.get('X_VAULT_KEY'):
+            raise RuntimeError('Diagnostic requires the cloud vault; local credential fallback is disabled.')
+        from cloud_auth import access_token
+        self.token = access_token(read_only=True)
+
+    def call(self, path, payload=None):
+        if payload is not None or not (
+                path == 'users/me' or re.fullmatch(r'users/[0-9]+/tweets\?[^#]*', path)):
+            raise RuntimeError('Diagnostic client allows only account and timeline GETs.')
+        if not self.token:
+            self.authenticate()
+        # No inherited 401 refresh/retry: preserve safe failure diagnostics.
+        return request_json('https://api.x.com/2/' + path,
+                            headers={'Authorization': 'Bearer ' + self.token,
+                                     'Content-Type': 'application/json'})
+
+    def create(self, text, parent):
+        raise RuntimeError('Diagnostic client cannot publish.')
+
+
+def diagnose_reconciliation(path, api=None):
+    # immutable=1 does not create journals, migrate schemas or checkpoint WAL.
+    # It must be a consistent, offline snapshot, not a live publisher database.
+    path = Path(path).resolve()
+    if not path.is_file():
+        raise RuntimeError('Diagnostic requires an existing offline state snapshot.')
+    if any(Path(str(path) + suffix).exists() for suffix in ('-wal', '-shm', '-journal')):
+        raise RuntimeError('Diagnostic requires a closed SQLite snapshot without sidecar files.')
+    with contextlib.closing(sqlite3.connect(path.as_uri() + '?mode=ro&immutable=1', uri=True)) as db:
+        db.row_factory = sqlite3.Row
+        db.execute('PRAGMA query_only=ON')
+        rows = db.execute("""
+            SELECT p.* FROM posts p JOIN releases r ON p.release_id=r.id
+            WHERE r.done=0 ORDER BY r.published,r.id,p.position
+        """).fetchall()
+        uncertain = [r for r in rows if r['status'] == 'sending']
+        if not uncertain:
+            print('Diagnostic: no uncertain posts in the snapshot; no X requests made.')
+            return
+        api = api if api is not None else DiagnosticX()
+        user = api.verify()
+        parent_by_release = {}
+        checked = 0
+        for row in rows:
+            release = row['release_id']
+            if row['status'] == 'posted':
+                parent_by_release[release] = row['tweet_id']
+            elif row['status'] == 'sending':
+                parent = parent_by_release.get(release)
+                if row['position'] > 0 and not parent:
+                    raise RuntimeError('Diagnostic stopped: preceding post is not confirmed in snapshot.')
+                recovered = api.reconcile(user, row, parent)
+                parent_by_release[release] = recovered
+                checked += 1
+                print(f'Diagnostic: uncertain post {checked} matched; saved state unchanged.')
+            else:
+                parent_by_release[release] = None
+        print('Diagnostic complete; no publishing, token refresh or saved state updates.')
+
+
 def skip_backlog(store):
     # One-time: releases held under the old single-post rule are marked skipped
     # (done=2) instead of being posted late as threads.
@@ -363,9 +435,23 @@ def run_lock(path):
 
 def main(argv=None):
     parser = argparse.ArgumentParser()
-    parser.add_argument('command', choices=['preview', 'run', 'status'])
+    parser.add_argument('command', choices=['preview', 'run', 'status', 'diagnose-reconciliation'])
     parser.add_argument('--output', type=Path)
+    parser.add_argument('--state', type=Path, help='Closed offline SQLite snapshot for diagnostics')
     args = parser.parse_args(argv)
+    if args.command == 'diagnose-reconciliation':
+        if args.state is None or args.output is not None:
+            parser.error('diagnose-reconciliation requires --state and does not accept --output')
+        try:
+            diagnose_reconciliation(args.state)
+            return 0
+        except (RuntimeError, OSError, ValueError, KeyError, sqlite3.Error) as exc:
+            # Only our controlled messages and allowlisted API details are safe.
+            message = str(exc) if isinstance(exc, RuntimeError) else 'Invalid or unreadable diagnostic snapshot/response.'
+            print('Diagnostic failed: ' + message, file=sys.stderr)
+            return 1
+    if args.state is not None:
+        parser.error('--state is only available for diagnose-reconciliation')
     if args.command == 'run' and os.environ.get('GITHUB_ACTIONS') != 'true':
         parser.error('Publishing now runs only in GitHub Actions. Local scheduling is disabled.')
     DATA.mkdir(parents=True, exist_ok=True)
