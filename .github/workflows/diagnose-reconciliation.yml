@@ -1,0 +1,50 @@
+{
+  "name": "Read-only reconciliation diagnostic",
+  "on": {
+    "workflow_dispatch": {}
+  },
+  "permissions": {
+    "contents": "read"
+  },
+  "concurrency": {
+    "group": "t3codes-publisher",
+    "cancel-in-progress": false
+  },
+  "jobs": {
+    "diagnose": {
+      "runs-on": "ubuntu-latest",
+      "timeout-minutes": 10,
+      "steps": [
+        {
+          "uses": "actions/checkout@v4",
+          "with": {
+            "persist-credentials": false
+          }
+        },
+        {
+          "uses": "actions/setup-python@v5",
+          "with": {
+            "python-version": "3.12"
+          }
+        },
+        {
+          "name": "Install existing dependencies",
+          "run": "python -m pip install -r requirements.txt"
+        },
+        {
+          "name": "Run mocked tests",
+          "run": "python -m unittest -v"
+        },
+        {
+          "name": "Inspect uncertain delivery without publishing",
+          "env": {
+            "X_VAULT_KEY": "${{ secrets.X_VAULT_KEY }}",
+            "BOT_DATA_DIR": "${{ github.workspace }}/.bot-state",
+            "BOT_REMOTE_STATE": "0"
+          },
+          "run": "snapshot=\"$(mktemp)\"\ntrap 'rm -f \"$snapshot\"' EXIT\ngit show HEAD:.bot-state/state.sqlite3 > \"$snapshot\"\npython bot.py diagnose-reconciliation --state \"$snapshot\""
+        }
+      ]
+    }
+  }
+}
