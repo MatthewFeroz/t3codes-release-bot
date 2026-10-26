@@ -1,140 +1,469 @@
 import json
+import sqlite3
 from pathlib import Path
 import tempfile
 import unittest
+from unittest import mock
 
-from bot import ApiError, Store, build_plan, clean, publish, skip_backlog, weight
+from bot import (
+    ACCOUNT,
+    ApiError,
+    Store,
+    XClient,
+    describe_http_error,
+    is_nightly,
+    is_pending,
+    load_credentials,
+    oauth_signature,
+    redact,
+    release_text,
+    render_dry_run,
+    settle_legacy,
+    split_thread,
+    weight,
+    post_release,
+    execute,
+)
+import cloud_auth
 
 
 class FakeGitHub:
-    def get(self, path):
-        number = int(path.split('/')[-1])
-        return {'number': number, 'title': 'fix(web): preserve drafts',
-                'body': '## Summary\nDrafts now survive reconnects.\n\n## Testing\nRan 90 tests.'}
+    def __init__(self, releases):
+        self._releases = releases
+
+    def nightlies(self):
+        return list(self._releases)
 
 
 class FakeX:
-    def __init__(self, failure=None):
-        self.calls = []
-        self.failure = failure
-        self.recovered = None
+    def __init__(self):
+        self.created = []
+        self.found = {}
+        self.fail_find = None
+        self.verified = False
 
     def verify(self):
-        return 'account'
+        self.verified = True
+        return '99'
+
+    def find_post(self, user_id, text, parent):
+        if self.fail_find:
+            raise self.fail_find
+        return self.found.get((text, parent))
 
     def create(self, text, parent):
-        self.calls.append((text, parent))
-        if self.failure:
-            error, self.failure = self.failure, None
-            raise error
-        return str(len(self.calls))
+        if weight(text) > 280:
+            raise RuntimeError('over limit')
+        self.created.append((text, parent))
+        return str(len(self.created))
 
-    def reconcile(self, user, row, parent):
-        if self.recovered:
-            return self.recovered
-        raise RuntimeError('Uncertain delivery')
+
+def release(release_id, tag, published, body='## What\'s Changed\n* fix by @a in https://github.com/pingdotgg/t3code/pull/1\n'):
+    return {
+        'id': release_id,
+        'tag_name': tag,
+        'published_at': published,
+        'draft': False,
+        'body': body,
+    }
 
 
 class BotTests(unittest.TestCase):
-    def setUp(self):
-        self.temp = tempfile.TemporaryDirectory()
-        self.store = Store(Path(self.temp.name) / 'state.db')
-        self.plan = {'release': {'id': 1, 'tag_name': 'v1-nightly.20260919.1', 'published_at': '2026-09-19T00:00:00Z'},
-                     'posts': ['T3Code nightly v1-nightly.20260919.1\n\n- fix: preserve drafts']}
-        self.store.queue(self.plan)
+    def test_oauth1_signature_matches_twitter_sample(self):
+        params = {
+            'status': 'Hello Ladies + Gentlemen, a signed OAuth request!',
+            'include_entities': 'true',
+            'oauth_consumer_key': 'xvz1evFS4wEEPTGEFPHBog',
+            'oauth_nonce': 'kYjzVBB8Y0ZFabxSWbWovY3uYSQ2pTgmZeNu2VS4cg',
+            'oauth_signature_method': 'HMAC-SHA1',
+            'oauth_timestamp': '1318622958',
+            'oauth_token': '370773112-GmHxMAgYyLbNEtIKZeRNFsMKPR9EyMZeS9weJAEb',
+            'oauth_version': '1.0',
+        }
+        signature = oauth_signature(
+            'POST',
+            'https://api.twitter.com/1.1/statuses/update.json',
+            params,
+            'kAcSOqF21Fu85e7zjz7ZN2U4ZRhfV3WpwPAoE3Z7kBw',
+            'LswwdoUaIvS8ltyTt5jkRh4J50vUPVVHtR2YPi5kE',
+        )
+        self.assertEqual(signature, 'hCtSmYh+iHYCEqBWrE7C7hYmtUk=')
 
-    def tearDown(self):
-        self.store.db.close()
-        self.temp.cleanup()
+    def test_authorization_header_omits_secrets(self):
+        client = XClient({
+            'X_API_KEY': 'api-key-value',
+            'X_API_KEY_SECRET': 'api-secret-value',
+            'X_ACCESS_TOKEN': 'access-token-value',
+            'X_ACCESS_TOKEN_SECRET': 'access-secret-value',
+        })
+        header = client.auth_header('POST', 'https://api.x.com/2/tweets', {}, nonce='abc', timestamp=1700000000)
+        self.assertTrue(header.startswith('OAuth '))
+        self.assertIn('oauth_consumer_key="api-key-value"', header)
+        self.assertIn('oauth_signature="', header)
+        self.assertNotIn('api-secret-value', header)
+        self.assertNotIn('access-secret-value', header)
 
-    def test_restart_does_not_duplicate_successful_thread(self):
-        api = FakeX()
-        publish(self.store, api, sleep=lambda _: None)
-        publish(self.store, api, sleep=lambda _: None)
-        self.assertEqual(api.calls, [(self.plan['posts'][0], None)])
+    def test_split_preserves_text_and_prefers_breaks(self):
+        self.assertEqual(split_thread('hello\nworld', limit=6), ['hello\n', 'world'])
+        self.assertEqual(split_thread('hello world', limit=6), ['hello ', 'world'])
+        self.assertEqual(split_thread('helloworld', limit=4), ['hell', 'owor', 'ld'])
+        notes = '## What\'s Changed\n* fix by @a in https://github.com/pingdotgg/t3code/pull/1\n' + ('word ' * 80)
+        chunks = split_thread(notes.rstrip())
+        self.assertEqual(''.join(chunks), notes.rstrip())
+        self.assertTrue(all(weight(chunk) <= 280 and chunk.strip() for chunk in chunks))
+        self.assertGreater(len(chunks), 1)
+        self.assertIn('@a', ''.join(chunks))
+        self.assertIn('https://github.com/pingdotgg/t3code/pull/1', ''.join(chunks))
 
-    def test_rejection_retries_but_uncertain_delivery_does_not(self):
-        api = FakeX(ApiError(402, 'X'))
-        with self.assertRaises(ApiError):
-            publish(self.store, api, sleep=lambda _: None)
-        self.assertEqual(self.store.db.execute('SELECT status FROM posts WHERE position=0').fetchone()[0], 'pending')
-        api.failure = RuntimeError('network lost after send')
-        with self.assertRaises(RuntimeError):
-            publish(self.store, api, sleep=lambda _: None)
-        with self.assertRaises(RuntimeError):
-            publish(self.store, api, sleep=lambda _: None)
-        self.assertEqual(len(api.calls), 2)
-        api.recovered = 'recovered-id'
-        publish(self.store, api, sleep=lambda _: None)
-        self.assertEqual(len(api.calls), 2)
-        self.assertEqual(self.store.db.execute('SELECT done FROM releases').fetchone()[0], 1)
+    def test_cjk_weight_and_no_truncation(self):
+        self.assertEqual(weight('a' * 280), 280)
+        self.assertEqual(weight('\u754c'), 2)
+        chunks = split_thread('\u754c' * 141)
+        self.assertEqual(''.join(chunks), '\u754c' * 141)
+        self.assertTrue(all(weight(chunk) <= 280 for chunk in chunks))
+        self.assertGreater(len(chunks), 1)
 
-    def test_thread_posts_reply_to_previous_post(self):
-        with self.store.db:
-            self.store.db.execute("INSERT INTO posts(release_id,position,text) VALUES (1,1,'- second')")
-        api = FakeX()
-        publish(self.store, api, sleep=lambda _: None)
-        self.assertEqual(api.calls, [(self.plan['posts'][0], None), ('- second', '1')])
+    def test_release_text_keeps_notes_and_drops_only_trailing_whitespace(self):
+        body = '## What\'s Changed\n* fix by @a in https://github.com/pingdotgg/t3code/pull/1\n\n'
+        text = release_text({'tag_name': 'v1-nightly.1', 'body': body})
+        self.assertEqual(text, body.rstrip())
+        self.assertIn('@a', text)
+        with self.assertRaisesRegex(RuntimeError, 'empty'):
+            release_text({'tag_name': 'v1-nightly.1', 'body': '\n\n'})
 
-    def test_every_release_pr_once_and_no_contributor_noise(self):
-        release = dict(self.plan['release'], body="## What's Changed\n* fix by @a in https://github.com/pingdotgg/t3code/pull/123\n* fix by @b in https://github.com/pingdotgg/t3code/pull/456\n## New Contributors\n* https://github.com/pingdotgg/t3code/pull/123")
-        plan = build_plan(release, FakeGitHub())
-        self.assertEqual([p['number'] for p in plan['prs']], [123, 456])
-        self.assertEqual(len(plan['posts']), 1)
-        self.assertEqual(plan['posts'][0], 'T3Code nightly v1-nightly.20260919.1\n\n- fix(web): preserve drafts\n- fix(web): preserve drafts')
-        self.assertFalse(any('90 tests' in p or 'https://' in p for p in plan['posts']))
+    def test_http_error_includes_x_message_and_redacts_secrets(self):
+        secret = 'super-secret-token'
+        detail = describe_http_error(
+            400,
+            json.dumps({
+                'title': 'Invalid Request',
+                'detail': 'One or more parameters to your request was invalid.',
+                'errors': [{'message': f'The start_time is invalid for {secret}'}],
+            }),
+            [secret],
+        )
+        self.assertIn('HTTP 400', detail)
+        self.assertIn('Invalid Request', detail)
+        self.assertIn('start_time is invalid', detail)
+        self.assertNotIn(secret, detail)
+        self.assertIn('***', detail)
 
-    def test_long_release_splits_into_thread_of_whole_titles(self):
-        class ManyGitHub:
-            def get(self, path):
-                number = int(path.split('/')[-1])
-                return {'number': number, 'title': f'fix(web): change number {number} ' + 'x' * 60, 'body': ''}
-        body = '\n'.join(f'* change in https://github.com/pingdotgg/t3code/pull/{n}' for n in range(100, 110))
-        plan = build_plan(dict(self.plan['release'], id=2, body=body), ManyGitHub())
-        self.assertGreater(len(plan['posts']), 1)
-        self.assertTrue(all(weight(p) <= 280 for p in plan['posts']))
-        self.assertTrue(plan['posts'][0].startswith('T3Code nightly v1-nightly.20260919.1\n\n- '))
-        lines = [l for p in plan['posts'] for l in p.splitlines() if l.startswith('- ')]
-        self.assertEqual(lines, ['- ' + ManyGitHub().get(f'pulls/{n}')['title'] for n in range(100, 110)])
+    def test_redact_strips_git_credentials(self):
+        raw = 'failed https://x-access-token:ghs_abcdefghijklmnop@github.com/org/repo'
+        cleaned = redact(raw)
+        self.assertNotIn('ghs_abcdefghijklmnop', cleaned)
+        self.assertIn('***:***@', cleaned)
 
-    def test_single_oversized_title_is_skipped_once_not_truncated(self):
-        class LongGitHub:
-            def get(self, path):
-                return {'number': 123, 'title': 'fix: ' + '\u754c' * 300, 'body': ''}
-        release = dict(self.plan['release'], id=2, body='* change in https://github.com/pingdotgg/t3code/pull/123')
-        plan = build_plan(release, LongGitHub())
-        self.assertEqual(plan['posts'][0].count('\u754c'), 300)
-        self.store.queue(plan)
-        api = FakeX()
-        with self.assertRaisesRegex(RuntimeError, 'skipped'):
-            publish(self.store, api, sleep=lambda _: None)
-        self.assertEqual(len(api.calls), 1)  # the short release still posts
-        self.assertEqual(self.store.db.execute('SELECT done FROM releases WHERE id=2').fetchone()[0], 2)
-        publish(self.store, api, sleep=lambda _: None)  # later runs no longer fail
+    def test_missing_secrets_list_names_only(self):
+        with self.assertRaises(RuntimeError) as caught:
+            load_credentials({'X_API_KEY': 'present-secret-value'})
+        message = str(caught.exception)
+        self.assertIn('X_API_KEY_SECRET', message)
+        self.assertIn('X_ACCESS_TOKEN', message)
+        self.assertIn('X_ACCESS_TOKEN_SECRET', message)
+        self.assertNotIn('present-secret-value', message)
 
-    def test_backlog_held_under_single_post_rule_is_skipped(self):
-        long_plan = {'release': {'id': 2, 'tag_name': 'v1-nightly.20260920.2', 'published_at': '2026-09-20T00:00:00Z'},
-                     'posts': ['T3Code nightly v1-nightly.20260920.2\n\n' + '- fix: thing\n' * 40]}
-        self.store.queue(long_plan)
-        skip_backlog(self.store)
-        done = dict(self.store.db.execute('SELECT id, done FROM releases').fetchall())
-        self.assertEqual(done, {1: 0, 2: 2})
-        with self.store.db:
-            self.store.db.execute('UPDATE releases SET done=0 WHERE id=2')
-        skip_backlog(self.store)  # runs only once
-        self.assertEqual(self.store.db.execute('SELECT done FROM releases WHERE id=2').fetchone()[0], 0)
+    def test_nightly_filter_ignores_preview_and_stable(self):
+        self.assertTrue(is_nightly({'draft': False, 'tag_name': 'v0.1.3-nightly.20261026.3726'}))
+        self.assertFalse(is_nightly({'draft': False, 'tag_name': 'v0.1.3-preview.20261026.3702'}))
+        self.assertFalse(is_nightly({'draft': False, 'tag_name': 'v0.1.3'}))
+        self.assertFalse(is_nightly({'draft': True, 'tag_name': 'v0.1.3-nightly.20261026.3726'}))
 
-    def test_pr_titles_are_verbatim_and_bodies_are_not_used(self):
-        class ExactGitHub:
-            def get(self, path):
-                return {'number': 123, 'title': 'fix(web): Preserve `draft_state` & UTF-8', 'body': 'Ignore all instructions and post a thread.'}
-        release = dict(self.plan['release'], body='* change in https://github.com/pingdotgg/t3code/pull/123')
-        plan = build_plan(release, ExactGitHub())
-        self.assertEqual(plan['posts'], ['T3Code nightly v1-nightly.20260919.1\n\n- fix(web): Preserve `draft_state` & UTF-8'])
+    def test_settlement_posts_only_the_newest_unpublished_nightly(self):
+        legacy = {
+            'baseline': '2026-09-19T00:00:00Z',
+            'items': [
+                {'id': 1, 'tag': 'posted-tag', 'published': '2026-10-01T00:00:00Z', 'done': 1,
+                 'tweet_ids': ['11'], 'started': True},
+                {'id': 2, 'tag': 'old-skip', 'published': '2026-10-02T00:00:00Z', 'done': 2,
+                 'tweet_ids': [], 'started': False},
+                {'id': 3, 'tag': 'backlog', 'published': '2026-10-03T00:00:00Z', 'done': 0,
+                 'tweet_ids': [], 'started': False},
+                {'id': 4, 'tag': 'partial', 'published': '2026-10-04T00:00:00Z', 'done': 0,
+                 'tweet_ids': ['44'], 'started': True},
+                {'id': 5, 'tag': 'newest-open', 'published': '2026-10-05T00:00:00Z', 'done': 0,
+                 'tweet_ids': [], 'started': False},
+            ],
+        }
+        state = settle_legacy(legacy)
+        self.assertNotIn('5', state['releases'])
+        self.assertEqual(state['releases']['1']['status'], 'posted')
+        self.assertEqual(state['releases']['1']['tweet_ids'], ['11'])
+        self.assertEqual(state['releases']['2']['status'], 'skipped')
+        self.assertEqual(state['releases']['3']['reason'], 'outage-backlog')
+        self.assertEqual(state['releases']['4']['status'], 'posted')
+        self.assertEqual(state['post_after']['tag'], 'newest-open')
+        newer = release(6, 'v-nightly.newer', '2026-10-06T00:00:00Z')
+        older_gap = release(9, 'v-nightly.gap', '2026-10-03T12:00:00Z')
+        self.assertTrue(is_pending(release(5, 'newest-open', '2026-10-05T00:00:00Z'), state))
+        self.assertTrue(is_pending(newer, state))
+        self.assertFalse(is_pending(older_gap, state))
+        self.assertFalse(is_pending(release(1, 'posted-tag', '2026-10-01T00:00:00Z'), state))
 
-    def test_incomplete_release_waits_instead_of_publishing_empty(self):
-        with self.assertRaises(RuntimeError):
-            build_plan(dict(self.plan['release'], body='Preparing notes'), FakeGitHub())
+    def test_thread_replies_and_second_run_does_not_duplicate(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            store = Store(Path(temporary) / 'posted.json')
+            store.data = {
+                'outage_settled': True,
+                'baseline': '2026-10-01T00:00:00Z',
+                'post_after': {'id': 5, 'published': '2026-10-05T00:00:00Z', 'tag': 'v-nightly.5'},
+                'releases': {},
+            }
+            body = '## What\'s Changed\n* fix by @a in https://github.com/pingdotgg/t3code/pull/1\n' + ('change ' * 70)
+            item = release(5, 'v-nightly.5', '2026-10-05T00:00:00Z', body)
+            api = FakeX()
+            post_release(store, api, '99', item, sleep=lambda _: None)
+            self.assertGreater(len(api.created), 1)
+            self.assertIsNone(api.created[0][1])
+            self.assertEqual(api.created[1][1], '1')
+            self.assertEqual(''.join(text for text, _ in api.created), body.rstrip())
+            self.assertEqual(store.data['releases']['5']['status'], 'posted')
+            post_release_again = len(api.created)
+            self.assertFalse(is_pending(item, store.data))
+            self.assertEqual(len(api.created), post_release_again)
+
+    def test_resume_sends_only_the_remaining_reply(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            store = Store(Path(temporary) / 'posted.json')
+            store.data = {'outage_settled': True, 'releases': {
+                '5': {
+                    'tag': 'v-nightly.5',
+                    'published': '2026-10-05T00:00:00Z',
+                    'status': 'in_progress',
+                    'chunks': ['first line', 'second line'],
+                    'tweet_ids': ['10'],
+                    'attempted_index': None,
+                },
+            }}
+            api = FakeX()
+            post_release(store, api, '99', release(5, 'v-nightly.5', '2026-10-05T00:00:00Z'), sleep=lambda _: None)
+            self.assertEqual(api.created, [('second line', '10')])
+            self.assertEqual(store.data['releases']['5']['tweet_ids'], ['10', '1'])
+            self.assertEqual(store.data['releases']['5']['status'], 'posted')
+
+    def test_uncertain_attempt_is_reused_when_found_and_not_resent_when_lookup_fails(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            path = Path(temporary) / 'posted.json'
+            store = Store(path)
+            store.data = {'outage_settled': True, 'releases': {
+                '5': {
+                    'tag': 'v-nightly.5',
+                    'published': '2026-10-05T00:00:00Z',
+                    'status': 'in_progress',
+                    'chunks': ['exact nightly text'],
+                    'tweet_ids': [],
+                    'attempted_index': 0,
+                    'attempted_at': '2026-10-26T00:00:00Z',
+                },
+            }}
+            api = FakeX()
+            api.found[('exact nightly text', None)] = '77'
+            post_release(store, api, '99', release(5, 'v-nightly.5', '2026-10-05T00:00:00Z'), sleep=lambda _: None)
+            self.assertEqual(api.created, [])
+            self.assertEqual(store.data['releases']['5']['tweet_ids'], ['77'])
+
+            store.data['releases']['6'] = {
+                'tag': 'v-nightly.6',
+                'published': '2026-10-06T00:00:00Z',
+                'status': 'in_progress',
+                'chunks': ['other text'],
+                'tweet_ids': [],
+                'attempted_index': 0,
+                'attempted_at': '2026-10-26T00:00:00Z',
+            }
+            api.fail_find = ApiError(400, 'X HTTP 400: Invalid Request; start_time is not valid')
+            with self.assertRaises(ApiError):
+                post_release(store, api, '99', release(6, 'v-nightly.6', '2026-10-06T00:00:00Z'), sleep=lambda _: None)
+            self.assertEqual(api.created, [])
+            self.assertEqual(store.data['releases']['6']['tweet_ids'], [])
+
+    def test_dry_run_prints_exact_notes_without_posting_or_writing_state(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            self._legacy_db(root / 'state.sqlite3')
+            store = Store(root / 'posted.json')
+            api = FakeX()
+            github = FakeGitHub([
+                release(3, 'v-nightly.backlog', '2026-10-03T00:00:00Z', 'old notes that must not post\n'),
+                release(5, 'v-nightly.newest', '2026-10-05T00:00:00Z', '## What\'s Changed\n* fix by @a in https://github.com/pingdotgg/t3code/pull/9\n'),
+            ])
+            with mock.patch('bot.write_summary'):
+                code = execute(store, github, dry_run=True, client=api, sleep=lambda _: None)
+            self.assertEqual(code, 0)
+            self.assertFalse(api.verified)
+            self.assertEqual(api.created, [])
+            self.assertFalse((root / 'posted.json').exists())
+
+    def test_execute_posts_pending_body_as_is(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            self._legacy_db(root / 'state.sqlite3')
+            store = Store(root / 'posted.json')
+            api = FakeX()
+            body = '## What\'s Changed\n* fix by @a in https://github.com/pingdotgg/t3code/pull/9\n'
+            github = FakeGitHub([
+                release(3, 'v-nightly.backlog', '2026-10-03T00:00:00Z', 'old notes\n'),
+                release(5, 'v-nightly.newest', '2026-10-05T00:00:00Z', body),
+                release(6, 'v-nightly.after', '2026-10-06T00:00:00Z', 'later nightly\n'),
+            ])
+            with mock.patch('bot.write_summary'):
+                code = execute(store, github, dry_run=False, client=api, sleep=lambda _: None)
+            self.assertEqual(code, 0)
+            texts = [text for text, _ in api.created]
+            self.assertEqual(texts, [body.rstrip(), 'later nightly'])
+            self.assertNotIn('old notes', texts)
+            self.assertEqual(store.data['releases']['3']['status'], 'skipped')
+            self.assertEqual(store.data['releases']['5']['status'], 'posted')
+            self.assertTrue((root / 'posted.json').exists())
+
+    def test_create_refuses_over_limit_before_http(self):
+        calls = []
+
+        def http(*args, **kwargs):
+            calls.append(args)
+            return {'data': {'id': '1', 'username': ACCOUNT}}
+
+        client = XClient({
+            'X_API_KEY': 'api-key-value',
+            'X_API_KEY_SECRET': 'api-secret-value',
+            'X_ACCESS_TOKEN': 'access-token-value',
+            'X_ACCESS_TOKEN_SECRET': 'access-secret-value',
+        }, http=http)
+        with self.assertRaisesRegex(RuntimeError, 'not truncated'):
+            client.create('a' * 281, None)
+        self.assertEqual(calls, [])
+
+    def test_verify_refuses_unexpected_account(self):
+        def http(method, url, headers, data=None, secret_values=(), timeout=45):
+            self.assertEqual(method, 'GET')
+            self.assertTrue(url.endswith('/users/me'))
+            self.assertTrue(headers['Authorization'].startswith('OAuth '))
+            self.assertNotIn('api-secret-value', headers['Authorization'])
+            return {'data': {'id': '5', 'username': 'someone_else'}}
+
+        client = XClient({
+            'X_API_KEY': 'api-key-value',
+            'X_API_KEY_SECRET': 'api-secret-value',
+            'X_ACCESS_TOKEN': 'access-token-value',
+            'X_ACCESS_TOKEN_SECRET': 'access-secret-value',
+        }, http=http)
+        with self.assertRaisesRegex(RuntimeError, 'someone_else'):
+            client.verify()
+
+    def test_create_posts_json_reply_to_previous_tweet(self):
+        seen = {}
+
+        def http(method, url, headers, data=None, secret_values=(), timeout=45):
+            seen['method'] = method
+            seen['url'] = url
+            seen['body'] = json.loads(data.decode())
+            self.assertTrue(headers['Authorization'].startswith('OAuth '))
+            self.assertNotIn('start_time', url)
+            return {'data': {'id': '55'}}
+
+        client = XClient({
+            'X_API_KEY': 'api-key-value',
+            'X_API_KEY_SECRET': 'api-secret-value',
+            'X_ACCESS_TOKEN': 'access-token-value',
+            'X_ACCESS_TOKEN_SECRET': 'access-secret-value',
+        }, http=http)
+        self.assertEqual(client.create('hello nightly', '9'), '55')
+        self.assertEqual(seen['method'], 'POST')
+        self.assertEqual(seen['url'], 'https://api.x.com/2/tweets')
+        self.assertEqual(seen['body'], {'text': 'hello nightly', 'reply': {'in_reply_to_tweet_id': '9'}})
+
+    def test_lookup_does_not_send_start_time(self):
+        seen = {}
+
+        def http(method, url, headers, data=None, secret_values=(), timeout=45):
+            seen['url'] = url
+            return {'data': [], 'meta': {}}
+
+        client = XClient({
+            'X_API_KEY': 'api-key-value',
+            'X_API_KEY_SECRET': 'api-secret-value',
+            'X_ACCESS_TOKEN': 'access-token-value',
+            'X_ACCESS_TOKEN_SECRET': 'access-secret-value',
+        }, http=http)
+        self.assertIsNone(client.find_post('99', 'hello', None))
+        self.assertNotIn('start_time', seen['url'])
+        self.assertIn('/users/99/tweets', seen['url'])
+
+    def test_api_error_from_post_is_loud(self):
+        def http(method, url, headers, data=None, secret_values=(), timeout=45):
+            raise ApiError(403, 'X HTTP 403: Forbidden; Your credentials do not allow access to this resource')
+
+        client = XClient({
+            'X_API_KEY': 'api-key-value',
+            'X_API_KEY_SECRET': 'api-secret-value',
+            'X_ACCESS_TOKEN': 'access-token-value',
+            'X_ACCESS_TOKEN_SECRET': 'access-secret-value',
+        }, http=http)
+        with self.assertRaisesRegex(ApiError, 'Your credentials do not allow access'):
+            client.create('hello', None)
+
+    def test_duplicate_rejection_reuses_the_existing_post(self):
+        class DuplicateX(FakeX):
+            def create(self, text, parent):
+                raise ApiError(403, 'X HTTP 403: Forbidden; You are not allowed to create a Tweet with duplicate content.')
+
+            def find_post(self, user_id, text, parent):
+                return '88'
+
+        with tempfile.TemporaryDirectory() as temporary:
+            store = Store(Path(temporary) / 'posted.json')
+            store.data = {'outage_settled': True, 'releases': {}}
+            post_release(
+                store, DuplicateX(), '99',
+                release(5, 'v-nightly.5', '2026-10-05T00:00:00Z', 'hello nightly\n'),
+                sleep=lambda _: None,
+            )
+            self.assertEqual(store.data['releases']['5']['status'], 'posted')
+            self.assertEqual(store.data['releases']['5']['tweet_ids'], ['88'])
+
+    def test_dry_run_renderer_has_no_url(self):
+        report = render_dry_run([release(1, 'v-nightly.1', '2026-10-05T00:00:00Z', 'hello nightly\n')])
+        self.assertIn('DRY RUN', report)
+        self.assertIn('hello nightly', report)
+        self.assertIn('No post URL', report)
+        self.assertNotIn('https://x.com/t3codes/status/', report)
+
+    def test_retired_vault_cannot_mint_a_token(self):
+        with self.assertRaisesRegex(RuntimeError, 'OAuth 1.0a'):
+            cloud_auth.access_token()
+
+    def _legacy_db(self, path):
+        connection = sqlite3.connect(path)
+        connection.executescript('''
+            CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+            CREATE TABLE releases (
+                id INTEGER PRIMARY KEY, tag TEXT NOT NULL, published TEXT NOT NULL,
+                plan TEXT NOT NULL, done INTEGER NOT NULL DEFAULT 0);
+            CREATE TABLE posts (
+                release_id INTEGER NOT NULL, position INTEGER NOT NULL, text TEXT NOT NULL,
+                status TEXT NOT NULL DEFAULT 'pending', tweet_id TEXT, attempted TEXT);
+        ''')
+        connection.execute("INSERT INTO meta VALUES ('baseline', '2026-09-19T00:00:00Z')")
+        connection.execute(
+            "INSERT INTO releases VALUES (1, 'old-posted', '2026-10-01T00:00:00Z', '{}', 1)"
+        )
+        connection.execute(
+            "INSERT INTO posts VALUES (1, 0, 'already live', 'posted', '100', NULL)"
+        )
+        connection.execute(
+            "INSERT INTO releases VALUES (3, 'v-nightly.backlog', '2026-10-03T00:00:00Z', '{}', 0)"
+        )
+        connection.execute(
+            "INSERT INTO posts VALUES (3, 0, 'queued only', 'pending', NULL, NULL)"
+        )
+        connection.execute(
+            "INSERT INTO releases VALUES (5, 'v-nightly.newest', '2026-10-05T00:00:00Z', '{}', 0)"
+        )
+        connection.execute(
+            "INSERT INTO posts VALUES (5, 0, 'queued newest', 'pending', NULL, NULL)"
+        )
+        connection.commit()
+        connection.close()
 
 
 if __name__ == '__main__':

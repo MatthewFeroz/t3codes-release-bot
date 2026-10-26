@@ -1,46 +1,76 @@
-﻿# T3Codes nightly release posts
+﻿# T3Codes nightly posts
 
-GitHub Actions checks `pingdotgg/t3code` for published nightlies once per hour (17 minutes past the hour). It posts only a previously unseen nightly release. Stable releases, preview releases and runs with no new nightly produce no posts. The old Windows scheduled task is disabled; local publishing is blocked in code.
+When a nightly release is published on [pingdotgg/t3code](https://github.com/pingdotgg/t3code), this bot posts that release's notes to [@t3codes](https://x.com/t3codes). There is no approval step.
 
-## Exact format
+A nightly is a published GitHub release whose tag contains `-nightly.` (for example `v0.1.3-nightly.20261026.3726`). Preview tags (`-preview.`) and stable tags are ignored. The notes are the release body, posted as written, including author @mentions and pull-request links. Trailing whitespace is not posted. If the notes are longer than X's 280 weighted-character limit, they are split into a reply thread on a newline, then a space, then a hard break. The pieces join back to the original notes. Titles are not rewritten and nothing is cut off to make a post fit. If a piece would still be over the limit, the job fails instead of sending it. A typical nightly is several posts; the notes are a few thousand characters.
+
+This repository is [MatthewFeroz/t3codes-release-bot](https://github.com/MatthewFeroz/t3codes-release-bot). A workflow here cannot subscribe to release events on `pingdotgg/t3code`, so `.github/workflows/nightly.yml` polls that repo's release list at minute 17 of every hour. Scheduled runs can be delayed by GitHub. The same workflow can be started by hand.
+
+The job checks out `main` and commits `.bot-state/posted.json` before and after each post, so a release that was already sent is not sent again. Nightlies that were already posted, previously skipped, or queued but never sent while the old publisher was stuck are recorded as handled. The newest nightly that has never been sent is posted, and every nightly published after it is posted once. That avoids dumping the outage backlog onto @t3codes.
+
+## Secrets
+
+Add these four repository secrets (not variables) while logged in to GitHub as the owner of this repo:
+
+**Settings → Secrets and variables → Actions → New repository secret**
+
+| Secret name | Value in the X developer portal |
+| --- | --- |
+| `X_API_KEY` | API Key (Consumer Key) |
+| `X_API_KEY_SECRET` | API Key Secret (Consumer Secret) |
+| `X_ACCESS_TOKEN` | Access Token |
+| `X_ACCESS_TOKEN_SECRET` | Access Token Secret |
+
+The old `X_VAULT_KEY` secret is not used.
+
+Create the values while logged in to the [X developer portal](https://developer.x.com/en/portal/dashboard) as **@t3codes**. The access token is for the account that owns the app. If the portal is logged in as someone else, the bot refuses to post.
+
+1. Open the app (create a project and an app first if needed).
+2. In the app's **Settings**, under **User authentication settings**, choose **Set up** or **Edit**.
+3. Set **App permissions** to **Read and write**. Read-only tokens cannot post.
+4. Turn on **OAuth 1.0a**. The bot does not use OAuth 2.0 or a bearer token.
+5. App type can be **Web App, Automated App or Bot**. The portal requires a callback URL and a website URL even though this bot never opens a browser. `https://localhost` is enough for the callback, and `https://github.com/MatthewFeroz/t3codes-release-bot` is enough for the website.
+6. Save.
+7. Open **Keys and tokens**.
+8. Under **Consumer Keys**, copy the API Key and API Key Secret.
+9. Under **Authentication Tokens → Access Token and Secret**, click **Generate** or **Regenerate**. You must regenerate after changing the permission. A token minted while the app was read-only stays read-only.
+10. Confirm the new access token says it was created with **Read and Write** permissions for **@t3codes**.
+11. Paste the four values into the GitHub secrets above. Do not commit them, print them, or put them in Actions variables.
+
+On each real run the bot calls `GET /2/users/me` with those credentials and posts only if the username is `t3codes`. Posts go to `POST /2/tweets`. A failed auth or a rejected post fails the job, and the log includes the HTTP status and the error text returned by X. Successful posts print lines like:
 
 ```text
-T3Code nightly v0.0.43-nightly.20260919.1962
-
-- fix(mobile): adapt workspace navigation and expand controls
-- chore(mobile): add dev client script with preview environment
-- fix: detect installed editors outside PATH
-- fix(web): show plain text in collapsed thought previews
+POST_URL=https://x.com/t3codes/status/1234567890
 ```
 
-One release, one post when the list fits. Each PR title is copied verbatim, in release-note order. No descriptions, summaries, authors, extra announcements or links are added. The formatter never abbreviates or truncates titles, and never splits a title across posts.
+The same URLs are written to the job summary.
 
-X's standard post limit is 280 weighted characters. If the complete list is longer, it is posted as a thread: the first post carries the header and as many whole titles as fit, and each reply continues with the next whole titles. If a single title is too long to fit in a post on its own, that release is skipped (`done=2`) and the Action fails once to report it; later runs carry on normally.
+## Run it
 
-Releases held under the old single-post rule (Sep 20 to 27, 2026) were marked skipped when threads were introduced and will not be posted.
+Dry run (no X call, no state change):
 
-## Hosting and state
+```bash
+gh workflow run nightly.yml --repo MatthewFeroz/t3codes-release-bot -f dry_run=true
+```
 
-Private repository: https://github.com/MatthewFeroz/t3codes-release-bot
+Post for real:
 
-The workflow is `.github/workflows/nightly.yml`; it supports an hourly schedule and manual dispatch. A workflow in this repository cannot directly receive release events from the upstream repository without upstream access, so GitHub checks the release feed. Scheduled Actions can be delayed.
+```bash
+gh workflow run nightly.yml --repo MatthewFeroz/t3codes-release-bot -f dry_run=false
+```
 
-`.bot-state/state.sqlite3` preserves the starting release, queued posts and published tweet IDs. Existing published-release history was migrated, so the earlier thread will not be reposted.
+The workflow file is `.github/workflows/nightly.yml`. Its only input is `dry_run` (boolean, default `false`). The hourly schedule does not set it, so scheduled runs post.
 
-OAuth credentials are stored in `.bot-state/x-vault.enc`, encrypted with Fernet. The encryption key is the GitHub Actions secret `X_VAULT_KEY`. Replacement refresh tokens are encrypted and committed back automatically. Credentials never appear in source, logs or command arguments. Local DPAPI credentials are retained as a migration backup; GitHub's rotating vault is now authoritative.
+Local checks, which do not post:
 
-The Actions job serializes runs. State is committed and pushed before each X POST and immediately after its response. A runner failure after a send leaves a durable uncertain-delivery record. Subsequent runs reconcile exact text and reply parent against X; if delivery cannot be established, they stop instead of duplicating it. Failed remote checkpoints halt publishing. Explicit API rejection leaves the post pending.
-
-## Operations
-
-```powershell
-python bot.py preview   # latest-preview.txt; does not publish
-python bot.py status
+```bash
 python -m unittest -v
-gh workflow run nightly.yml --repo MatthewFeroz/t3codes-release-bot
-gh workflow disable nightly.yml --repo MatthewFeroz/t3codes-release-bot
+python bot.py dry-run
+python bot.py status
 ```
 
-The cloud workflow installs `requirements.txt`. Preview/test on Windows use the Python standard library. `Migrate-Credentials.py` was the one-time credential migration and refuses to overwrite the existing cloud vault.
+`python bot.py run` posts only inside GitHub Actions.
 
-Do not re-enable the retired Windows task or use its old token store as a concurrent publisher. Keep state history when redeploying. The ten posts from the original format remain on X; this change does not delete them.
+## Retired publisher
+
+The Windows scheduled task, `XAuth.psm1`, and `Migrate-Credentials.py` are not the publisher. Do not turn the old task back on. The encrypted file `.bot-state/x-vault.enc` is a historical backup and is not read.
