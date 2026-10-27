@@ -123,13 +123,17 @@ class BotTests(unittest.TestCase):
         self.assertTrue(all(weight(chunk) <= 280 for chunk in chunks))
         self.assertGreater(len(chunks), 1)
 
-    def test_release_text_keeps_notes_and_drops_only_trailing_whitespace(self):
+    def test_release_text_keeps_notes_and_drops_links(self):
         body = '## What\'s Changed\n* fix by @a in https://github.com/pingdotgg/t3code/pull/1\n\n'
         text = release_text({'tag_name': 'v1-nightly.1', 'body': body})
-        self.assertEqual(text, body.rstrip())
+        self.assertEqual(text, '## What\'s Changed\n* fix by @a')
         self.assertIn('@a', text)
+        self.assertNotIn('http', text)
+        self.assertNotIn('github.com', text)
         with self.assertRaisesRegex(RuntimeError, 'empty'):
             release_text({'tag_name': 'v1-nightly.1', 'body': '\n\n'})
+        with self.assertRaisesRegex(RuntimeError, 'empty'):
+            release_text({'tag_name': 'v1-nightly.1', 'body': 'https://github.com/pingdotgg/t3code/pull/1\n'})
 
     def test_http_error_includes_x_message_and_redacts_secrets(self):
         secret = 'super-secret-token'
@@ -216,7 +220,12 @@ class BotTests(unittest.TestCase):
             self.assertGreater(len(api.created), 1)
             self.assertIsNone(api.created[0][1])
             self.assertEqual(api.created[1][1], '1')
-            self.assertEqual(''.join(text for text, _ in api.created), body.rstrip())
+            joined = ''.join(text for text, _ in api.created)
+            self.assertEqual(joined, release_text(item))
+            self.assertIn('* fix by @a', joined)
+            self.assertNotIn('http', joined)
+            self.assertNotIn('github.com', joined)
+            self.assertTrue(all(weight(text) <= 280 for text, _ in api.created))
             self.assertEqual(store.data['releases']['5']['status'], 'posted')
             post_release_again = len(api.created)
             self.assertFalse(is_pending(item, store.data))
@@ -310,7 +319,8 @@ class BotTests(unittest.TestCase):
                 code = execute(store, github, dry_run=False, client=api, sleep=lambda _: None)
             self.assertEqual(code, 0)
             texts = [text for text, _ in api.created]
-            self.assertEqual(texts, [body.rstrip(), 'later nightly'])
+            self.assertEqual(texts, ['## What\'s Changed\n* fix by @a', 'later nightly'])
+            self.assertNotIn('http', texts[0])
             self.assertNotIn('old notes', texts)
             self.assertEqual(store.data['releases']['3']['status'], 'skipped')
             self.assertEqual(store.data['releases']['5']['status'], 'posted')
@@ -427,6 +437,74 @@ class BotTests(unittest.TestCase):
         self.assertIn('hello nightly', report)
         self.assertIn('No post URL', report)
         self.assertNotIn('https://x.com/t3codes/status/', report)
+
+    def test_dry_run_renderer_strips_links_from_notes(self):
+        body = (
+            '## What\'s Changed\n'
+            '* fix by @a in https://github.com/pingdotgg/t3code/pull/9\n'
+            '**Full Changelog**: https://github.com/pingdotgg/t3code/compare/a...b\n'
+        )
+        report = render_dry_run([release(1, 'v-nightly.1', '2026-10-05T00:00:00Z', body)])
+        self.assertIn('* fix by @a', report)
+        self.assertNotIn('http', report)
+        self.assertNotIn('github.com', report)
+        self.assertNotIn('Full Changelog', report)
+        self.assertIn('1 post(s)', report)
+
+    def test_create_strips_urls_before_the_request(self):
+        seen = {}
+
+        def http(method, url, headers, data=None, secret_values=(), timeout=45):
+            seen['body'] = json.loads(data.decode())
+            return {'data': {'id': '55'}}
+
+        client = XClient({
+            'X_API_KEY': 'api-key-value',
+            'X_API_KEY_SECRET': 'api-secret-value',
+            'X_ACCESS_TOKEN': 'access-token-value',
+            'X_ACCESS_TOKEN_SECRET': 'access-secret-value',
+        }, http=http)
+        self.assertEqual(client.create('ship https://example.com/a today', None), '55')
+        self.assertEqual(seen['body'], {'text': 'ship today'})
+
+    def test_create_does_not_post_when_a_url_survives(self):
+        calls = []
+
+        def http(method, url, headers, data=None, secret_values=(), timeout=45):
+            calls.append(url)
+            return {'data': {'id': '1'}}
+
+        client = XClient({
+            'X_API_KEY': 'api-key-value',
+            'X_API_KEY_SECRET': 'api-secret-value',
+            'X_ACCESS_TOKEN': 'access-token-value',
+            'X_ACCESS_TOKEN_SECRET': 'access-secret-value',
+        }, http=http)
+        with mock.patch(
+            'bot.ensure_plain',
+            side_effect=RuntimeError('Refusing to post: a URL survived link removal. Nothing was posted.'),
+        ):
+            with self.assertRaisesRegex(RuntimeError, 'survived link removal'):
+                client.create('https://example.com', None)
+        self.assertEqual(calls, [])
+
+    def test_resume_strips_a_stored_url_before_sending(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            store = Store(Path(temporary) / 'posted.json')
+            store.data = {'outage_settled': True, 'releases': {
+                '5': {
+                    'tag': 'v-nightly.5',
+                    'published': '2026-10-05T00:00:00Z',
+                    'status': 'in_progress',
+                    'chunks': ['see https://example.com/x today'],
+                    'tweet_ids': [],
+                    'attempted_index': None,
+                },
+            }}
+            api = FakeX()
+            post_release(store, api, '99', release(5, 'v-nightly.5', '2026-10-05T00:00:00Z'), sleep=lambda _: None)
+            self.assertEqual(api.created, [('see today', None)])
+            self.assertEqual(store.data['releases']['5']['status'], 'posted')
 
     def test_retired_vault_cannot_mint_a_token(self):
         with self.assertRaisesRegex(RuntimeError, 'OAuth 1.0a'):

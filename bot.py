@@ -2,9 +2,9 @@
 
 Nightlies are GitHub releases whose tags contain ``-nightly.``. This
 repository cannot receive release events from that upstream repo, so the
-workflow polls the release list. The release notes are posted as-is (trailing
-whitespace removed). Notes longer than X's limit are split into a reply thread
-without dropping or rewriting the text.
+workflow polls the release list. Links are removed from the release notes
+before posting, so a post stays plain text. Notes longer than X's limit are
+split into a reply thread. The remaining words are not rewritten.
 
 OAuth 1.0a user credentials come from GitHub Actions secrets. Nothing here
 reads the retired encrypted vault.
@@ -32,6 +32,8 @@ import unicodedata
 import urllib.error
 import urllib.parse
 import urllib.request
+
+from xurls import ensure_plain
 
 ROOT = Path(__file__).resolve().parent
 SOURCE_REPO = 'pingdotgg/t3code'
@@ -209,16 +211,18 @@ def is_nightly(release):
 
 
 def release_text(release):
-    """Return the nightly notes exactly as published, without trailing whitespace.
+    """Return nightly notes with links removed.
 
-    Trailing whitespace is removed so a final newline cannot become its own
-    blank post. Every other character is kept.
+    X bills a post that contains a URL at the link rate. Bare URLs, markdown
+    links, autolinks, and anything twitter-text would auto-link are removed.
+    The remaining notes are not rewritten. Trailing whitespace is removed so a
+    final newline cannot become its own blank post.
     """
     body = release.get('body')
     tag = release.get('tag_name') or release.get('id')
     if body is None:
         raise RuntimeError(f'{tag}: GitHub release payload had no notes. Nothing was posted.')
-    text = str(body).rstrip()
+    text = ensure_plain(str(body)).strip()
     if not text.strip():
         raise RuntimeError(f'{tag}: nightly release notes are empty. Nothing was posted.')
     return text
@@ -282,6 +286,7 @@ class XClient:
         return str(user['id'])
 
     def create(self, text, parent):
+        text = ensure_plain(text)
         size = weight(text)
         if size > LIMIT:
             raise RuntimeError(
@@ -555,17 +560,25 @@ def post_release(store, client, user_id, release, sleep):
     if not row.get('chunks'):
         raise RuntimeError(f'{row.get("tag")}: in-progress post is missing its text. Refusing to send it again blindly.')
     ids = [str(tweet_id) for tweet_id in row.get('tweet_ids') or []]
-    chunks = row['chunks']
+    chunks = list(row['chunks'])
+    row['chunks'] = chunks
     for index, chunk in enumerate(chunks):
         if index < len(ids):
             continue
+        plain = ensure_plain(chunk)
+        if plain != chunk:
+            chunks[index] = plain
+            store.save()
+        chunk = plain
+        if not chunk.strip():
+            continue
         size = weight(chunk)
-        if size > LIMIT or not chunk.strip():
+        if size > LIMIT:
             raise RuntimeError(
                 f'Refusing to post {row["tag"]} part {index + 1}: it is {size} weighted characters '
                 f'(limit {LIMIT}). The notes were not truncated.'
             )
-        parent = ids[index - 1] if index else None
+        parent = ids[-1] if ids else None
         tweet_id = None
         if row.get('attempted_index') == index:
             tweet_id = client.find_post(user_id, chunk, parent)
@@ -597,6 +610,8 @@ def post_release(store, client, user_id, release, sleep):
         write_summary(f'- {row["tag"]} {index + 1}/{len(chunks)}: {url}\n')
         if index + 1 < len(chunks):
             sleep(2)
+    if not ids:
+        raise RuntimeError(f'{row.get("tag")}: link removal left no post text. Nothing was posted.')
     row['status'] = 'posted'
     row['reason'] = 'posted'
     row.pop('chunks', None)
