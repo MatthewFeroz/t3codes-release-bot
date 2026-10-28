@@ -75,6 +75,41 @@ python bot.py status
 
 `python bot.py run` posts only inside GitHub Actions.
 
+## Triage replies
+
+`replies.py` answers posts that tell @t3codes that T3 Code is broken. The reply points to `npx t3 triage`, which starts Claude Code or Codex in a terminal with the user's T3 Code logs and the source for their version. It works even when the app does not start.
+
+X only lets an API app reply when the post's author @mentioned the replying account or quoted one of its posts. Other replies are rejected with HTTP 403. This rule covers every self-serve API tier, X Premium included, so the bot reads the @t3codes mention timeline (`GET /2/users/:id/mentions`). It cannot answer a post that only tags @theo.
+
+A mention gets a reply only if all of these hold:
+
+- It mentions @t3codes or quotes a @t3codes post.
+- It is in English, under 24 hours old, and not a retweet.
+- It is not from @t3codes, @theo, or @pingdotgg.
+- After handles and links are removed, it contains a breakage phrase such as `broken`, `crash`, `stuck`, `error`, or `won't start`. It does not say the problem is fixed (`works now`, `fixed`, `nvm`) and does not mention triage.
+- The author has not had a reply or a queued reply in the last 7 days, and the conversation has not been answered.
+
+There are three wordings. Each is 180 characters with no link, and they rotate because X rejects duplicate text. A reply costs $0.01, the summoned-reply rate. Reading a mention costs $0.001.
+
+Modes:
+
+| Mode | What it does |
+| --- | --- |
+| `dry-run` | Reads mentions and prints each one with its decision and the reply it would send. Writes no state and posts nothing. This is the default. |
+| `queue` | Records matching mentions in `.bot-state/replies.json` (post IDs and usernames only, no post text). Sends nothing until approved. |
+| `auto` | Replies to matches, at most 3 per run and 10 per 24 hours. Anything over the cap stays queued. |
+
+Scheduled runs (minute 47 of every hour) do nothing until the repository variable `REPLY_MODE` is set to `queue` or `auto`. By hand:
+
+```bash
+gh workflow run replies.yml --repo MatthewFeroz/t3codes-release-bot -f mode=dry-run
+gh workflow run replies.yml --repo MatthewFeroz/t3codes-release-bot -f mode=queue
+gh workflow run replies.yml --repo MatthewFeroz/t3codes-release-bot -f mode=queue -f approve=<post id>
+gh workflow run replies.yml --repo MatthewFeroz/t3codes-release-bot -f mode=queue -f reject=<post id>
+```
+
+Locally, `python replies.py dry-run` reads mentions with the four X secrets from the environment and posts nothing. `python replies.py status` lists queued mentions.
+
 ## Retired publisher
 
 The Windows scheduled task, `XAuth.psm1`, and `Migrate-Credentials.py` are not the publisher. Do not turn the old task back on. The encrypted file `.bot-state/x-vault.enc` is a historical backup and is not read.
