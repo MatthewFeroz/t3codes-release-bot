@@ -98,7 +98,11 @@ A mention gets a reply only if all of these hold:
 - After handles and links are removed, it contains a breakage phrase such as `broken`, `crash`, `stuck`, `error`, or `won't start`. It does not say the problem is fixed (`works now`, `fixed`, `nvm`) and does not mention triage.
 - The author has not had a reply or a queued reply in the last 7 days, and the conversation has not been answered.
 
-There are three wordings. Each is 180 characters with no link, and they rotate because X rejects duplicate text. A reply costs $0.01, the summoned-reply rate. Reading a mention costs $0.001.
+Every reply is the same 153 characters, with no link:
+
+> Run npx t3 triage in a terminal. Your coding agent reads your T3 Code logs, checks known issues for your version, and writes up the GitHub issue for you.
+
+The bot does not file a bug report itself. A post rarely has enough detail for one, and `npx t3 triage` collects the logs and versions and writes the issue on the user's machine. If X rejects the reply as duplicate content, that mention is marked failed and the run fails; nothing else is sent. A reply costs $0.01, the summoned-reply rate. Reading a mention costs $0.001.
 
 Modes:
 

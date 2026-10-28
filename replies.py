@@ -58,18 +58,13 @@ from xurls import ensure_plain
 LOG = logging.getLogger('release-bot')
 MODES = ('dry-run', 'queue', 'auto')
 
-# Each reply is a separate post from @t3codes. X rejects identical text as a
-# duplicate, so the wording rotates. No URL: a post with a link costs $0.20.
+# One wording, sent as a reply to each matching mention. No URL: a post with a
+# link costs $0.20. X can reject identical text as a duplicate. With one
+# wording there is nothing to fall back to, so that mention is marked failed
+# and the run fails loudly instead of sending something else.
 REPLIES = (
-    'Run npx t3 triage in a terminal. It starts Claude Code or Codex with your T3 Code '
-    'logs and the source for your version, checks for known issues, and can help you '
-    'file a bug report.',
-    'Try npx t3 triage. It hands the problem to your own coding agent, which reads the '
-    'T3 Code logs on your machine and the source for your version, and asks before it '
-    'changes anything.',
-    'npx t3 triage is the quickest way to find out. It opens Claude Code or Codex on your '
-    'machine with the T3 Code logs, looks for known issues, and can help you write up a '
-    'GitHub issue.',
+    'Run npx t3 triage in a terminal. Your coding agent reads your T3 Code logs, '
+    'checks known issues for your version, and writes up the GitHub issue for you.',
 )
 
 MAX_AGE = dt.timedelta(hours=24)
@@ -260,7 +255,7 @@ def send(store, client, user_id, tweet_id):
             store.save()
             raise
         return _record(store, row, reply_id)
-    row.update(status='failed', reason='every reply variant was rejected as a duplicate', decided_at=now())
+    row.update(status='failed', reason='X rejected the reply as duplicate content', decided_at=now())
     store.save()
     return None
 

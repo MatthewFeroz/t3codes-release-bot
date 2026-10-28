@@ -91,7 +91,10 @@ class ReplyTests(unittest.TestCase):
             self.assertLessEqual(weight(text), 280)
             self.assertFalse(has_detectable_url(text), text)
             self.assertNotIn('@', text)
-        self.assertEqual(len(set(REPLIES)), len(REPLIES))
+        self.assertEqual(REPLIES, (
+            'Run npx t3 triage in a terminal. Your coding agent reads your T3 Code logs, checks known issues '
+            'for your version, and writes up the GitHub issue for you.',
+        ))
 
     def test_problem_phrases_match_breakage_reports(self):
         for text in (
@@ -190,7 +193,7 @@ class ReplyTests(unittest.TestCase):
         self.assertEqual([parent for _, parent in client.created], ['11', '13', '14'])
         self.assertEqual(store.data['mentions']['15']['status'], 'queued')
         self.assertNotIn('12', store.data['mentions'])
-        self.assertEqual(len({text for text, _ in client.created}), 3)
+        self.assertEqual({text for text, _ in client.created}, {REPLIES[0]})
 
     def test_auto_respects_daily_cap(self):
         store = self.store()
@@ -216,14 +219,16 @@ class ReplyTests(unittest.TestCase):
                                       store=self.store())
         self.assertNotIn('12', store.data['mentions'])
 
-    def test_duplicate_rejection_tries_the_next_wording(self):
+    def test_duplicate_rejection_fails_loudly_and_sends_nothing_else(self):
         self.run_mode('queue', [[mention(11, '@t3codes broken')]])
         client = FakeX([[]])
         client.fail = [ApiError(403, 'X HTTP 403: You are not allowed to create a Tweet with duplicate content.')]
-        store = self.store()
-        execute(store, client, 'queue', approve=['11'], at=NOW, sleep=lambda _: None)
-        self.assertEqual(client.created, [(REPLIES[1], '11')])
-        self.assertEqual(store.data['mentions']['11']['status'], 'replied')
+        with self.assertRaises(RuntimeError):
+            execute(self.store(), client, 'queue', approve=['11'], at=NOW, sleep=lambda _: None)
+        self.assertEqual(client.created, [])
+        row = json.loads(self.path.read_text())['mentions']['11']
+        self.assertEqual(row['status'], 'failed')
+        self.assertIn('duplicate', row['reason'])
 
     def test_x_refusal_is_recorded_and_fails_the_run_loudly(self):
         self.run_mode('queue', [[mention(11, '@t3codes broken')]])
@@ -341,7 +346,7 @@ class ReviewIssueTests(unittest.TestCase):
         self.assertEqual(list(self.ah.issues), [1])
 
     def test_issue_body_keeps_handles_out_of_reach_of_github_mentions(self):
-        body = review_body({'tweet_id': '11', 'username': 'alice', 'phrase': 'broken', 'draft': REPLIES[1]},
+        body = review_body({'tweet_id': '11', 'username': 'alice', 'phrase': 'broken', 'draft': REPLIES[0]},
                            '@theo @t3codes ```why``` is this broken')
         outside_code = body.split('```text')[0] + ''.join(part.split('```', 1)[-1] for part in body.split('```text')[1:])
         self.assertNotRegex(outside_code.replace('`@t3codes`', ''), r'(?<![\w`/])@\w')
