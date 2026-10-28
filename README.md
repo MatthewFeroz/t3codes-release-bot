@@ -119,6 +119,23 @@ gh workflow run replies.yml --repo MatthewFeroz/t3codes-release-bot -f mode=queu
 
 Locally, `python replies.py dry-run` reads mentions with the four X secrets from the environment and posts nothing. `python replies.py status` lists queued mentions.
 
+### Review issues
+
+In `queue` mode, each match also gets a GitHub issue in this repository, labeled `triage-reply`. The issue links the post, quotes it in a code block (so its @handles do not ping GitHub users), names the matched phrase, and shows the exact reply @t3codes will send.
+
+- Add the `approve` label to send that reply. The bot replies on X, comments the reply link on the issue, and closes it.
+- Close the issue to skip the mention. It is never answered.
+
+Labeling or closing a review issue starts the workflow at once. That run reads no mentions. Every run checks all open review issues, so if GitHub drops one run, the next run still acts on the decision.
+
+The issues are opened, read, commented on, and closed through [Merge Agent Handler](https://docs.merge.dev/merge-agent-handler/overview.md), not with a token in this repository. Agent Handler holds the GitHub credential and records each call in its Tool Call Logs. To set it up:
+
+1. In the [Agent Handler dashboard](https://ah.merge.dev), create a Registered User and connect GitHub for it, with access to this repository.
+2. Create a Tool Pack with only `github__create_issue`, `github__get_issue`, `github__create_issue_comment`, and `github__update_issue`.
+3. Create an access key, then add three repository secrets: `AGENT_HANDLER_API_KEY`, `AGENT_HANDLER_TOOL_PACK_ID`, and `AGENT_HANDLER_REGISTERED_USER_ID`.
+
+Without those secrets, `queue` mode still records matches, and you approve them by post ID with the commands above.
+
 ## Retired publisher
 
 The Windows scheduled task, `XAuth.psm1`, and `Migrate-Credentials.py` are not the publisher. Do not turn the old task back on. The encrypted file `.bot-state/x-vault.enc` is a historical backup and is not read.

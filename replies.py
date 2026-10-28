@@ -14,7 +14,9 @@ Modes come from ``REPLY_MODE``:
 - ``dry-run`` (default) reads mentions and prints what it would send. It does
   not write state or post.
 - ``queue`` records matching mentions in ``.bot-state/replies.json``. Nothing
-  is sent until an ID is passed in ``REPLY_APPROVE``.
+  is sent until it is approved: by an ID in ``REPLY_APPROVE``, or, when
+  Agent Handler is configured, by the ``approve`` label on the mention's
+  review issue. Closing that issue skips the mention.
 - ``auto`` replies to matching mentions within the caps below.
 
 The OAuth 1.0a client, state checkpoint, and lookup of an uncertain post come
@@ -50,6 +52,7 @@ from bot import (
     weight,
     write_summary,
 )
+from agent_handler import AH_SECRET_NAMES, AgentHandler, AgentHandlerError, configured as agent_handler_configured
 from xurls import ensure_plain
 
 LOG = logging.getLogger('release-bot')
@@ -78,6 +81,9 @@ MAX_PAGES = 5
 IGNORED_AUTHORS = frozenset({ACCOUNT, 'theo', 'pingdotgg'})
 # X tags very short posts "und" (undetermined) or "qam" (mentions only).
 LANGS = frozenset({'en', 'und', 'qam'})
+REVIEW_REPO = 'MatthewFeroz/t3codes-release-bot'
+REVIEW_LABEL = 'triage-reply'
+APPROVE_LABEL = 'approve'
 
 _PROBLEM = re.compile(
     r"\b(?:broken|broke|breaks|crash(?:es|ed|ing)?|bug(?:gy|s)?|errors?|stuck|frozen|"
@@ -227,7 +233,12 @@ def send(store, client, user_id, tweet_id):
         found = client.find_post(user_id, row['reply_text'], tweet_id)
         if found:
             return _record(store, row, found)
-    for index in next_variants(store.data):
+    order = next_variants(store.data)
+    if row.get('draft') in REPLIES:
+        # The review issue showed this wording, so it is what gets sent.
+        first = REPLIES.index(row['draft'])
+        order = [first] + [index for index in order if index != first]
+    for index in order:
         text = ensure_plain(REPLIES[index])
         row.update(status='sending', reply_text=text, attempted_at=now())
         store.save()
@@ -262,6 +273,81 @@ def _record(store, row, reply_id):
     print(f'REPLY_URL={url}', flush=True)
     write_summary(f'- replied to {tweet_url(row.get("username"), row["tweet_id"])}: {url}\n')
     return str(reply_id)
+
+
+def _fence(text):
+    # Post text sits in a code block so its @handles cannot ping GitHub users.
+    return '```text\n' + re.sub(r'`{3,}', "'''", text.strip()) + '\n```'
+
+
+def review_body(row, text=None):
+    url = tweet_url(row.get('username'), row['tweet_id'])
+    lines = [
+        'A mention of `@t3codes` reads like a T3 Code breakage report.',
+        '',
+        f'Post: {url}',
+    ]
+    if text:
+        lines += ['', _fence(text)]
+    lines += [
+        '',
+        f'Matched phrase: `{row.get("phrase")}`',
+        '',
+        '`@t3codes` will reply with:',
+        '',
+        _fence(row.get('draft') or REPLIES[0]),
+        '',
+        f'Add the `{APPROVE_LABEL}` label to send this reply. Close the issue to skip it.',
+    ]
+    return '\n'.join(lines) + '\n'
+
+
+def _issue(result):
+    return result.get('issue') if isinstance(result.get('issue'), dict) else result
+
+
+class ReviewQueue:
+    """One GitHub issue per queued reply, opened, read and closed through Agent Handler."""
+
+    def __init__(self, agent_handler, repo=REVIEW_REPO):
+        self.ah = agent_handler
+        self.owner, self.repo = repo.split('/', 1)
+
+    def _where(self, **extra):
+        return {'owner': self.owner, 'repo': self.repo, **extra}
+
+    def open(self, row, text=None):
+        result = self.ah.call('github__create_issue', self._where(
+            title=f'Triage reply: x.com/{row.get("username")} "{row.get("phrase")}"',
+            body=review_body(row, text),
+            assignee=None, assignees=None, milestone=None, labels=[REVIEW_LABEL], type=None,
+        ))
+        number = _issue(result).get('number')
+        if not number:
+            raise AgentHandlerError('github__create_issue returned no issue number.')
+        return int(number)
+
+    def decision(self, number):
+        """Return 'approve', 'reject', or None while the issue waits."""
+        issue = _issue(self.ah.call('github__get_issue', self._where(issue_number=int(number))))
+        labels = {label.get('name') if isinstance(label, dict) else label for label in issue.get('labels') or []}
+        if APPROVE_LABEL in labels:
+            return 'approve'
+        if issue.get('state') == 'closed':
+            return 'reject'
+        return None
+
+    def comment(self, number, reply_url):
+        self.ah.call('github__create_issue_comment', self._where(
+            issue_number=int(number), body=f'Replied from `@{ACCOUNT}`: {reply_url}',
+        ))
+
+    def close(self, number):
+        self.ah.call('github__update_issue', self._where(
+            issue_number=int(number), title=None, body=None, state='closed', state_reason='completed',
+            assignee=None, assignees=None, milestone=None, labels=None, type=None,
+            duplicate_of_issue_id=None, remove_milestone=None, remove_assignees=None,
+        ))
 
 
 def sent_in_last_day(state, at):
@@ -300,7 +386,7 @@ def render(mode, decisions, approvals):
     return '\n'.join(lines).rstrip() + '\n'
 
 
-def execute(store, client, mode, approve=(), reject=(), at=None, sleep=time.sleep):
+def execute(store, client, mode, approve=(), reject=(), at=None, sleep=time.sleep, review=None, scan=True):
     if mode not in MODES:
         raise RuntimeError(f'REPLY_MODE must be one of {", ".join(MODES)}; got {mode!r}.')
     at = at or dt.datetime.now(dt.timezone.utc)
@@ -322,7 +408,26 @@ def execute(store, client, mode, approve=(), reject=(), at=None, sleep=time.slee
             store.save()
         approvals.append((tweet_id, 'would reject' if dry_run else 'rejected'))
 
-    tweets, users, quoted = fetch_mentions(client, user_id, state.get('since_id'))
+    approve = list(approve)
+    review_errors = []
+    if review:
+        for tweet_id, row in sorted(state['mentions'].items(), key=lambda item: int(item[0])):
+            if row.get('status') not in ('queued', 'sending') or not row.get('issue'):
+                continue
+            try:
+                verdict = review.decision(row['issue'])
+            except AgentHandlerError as exc:
+                review_errors.append(f'reading issue #{row["issue"]}: {exc}')
+                continue
+            if verdict == 'approve' and tweet_id not in approve:
+                approve.append(tweet_id)
+            elif verdict == 'reject' and row.get('status') == 'queued':
+                if not dry_run:
+                    row.update(status='rejected', decided_at=now())
+                    store.save()
+                approvals.append((tweet_id, f'issue #{row["issue"]} closed: ' + ('would reject' if dry_run else 'rejected')))
+
+    tweets, users, quoted = fetch_mentions(client, user_id, state.get('since_id')) if scan else ([], {}, {})
     authors = recent_authors(state, at)
     decisions = []
     variant = next_variants(state)[0]
@@ -336,8 +441,10 @@ def execute(store, client, mode, approve=(), reject=(), at=None, sleep=time.slee
         authors.add(str(tweet.get('author_id')))
         item['reply'] = REPLIES[variant]
         variant = (variant + 1) % len(REPLIES)
-        item['action'] = {'dry-run': 'would queue or reply', 'queue': 'queued for approval',
-                          'auto': 'queued'}[mode]
+        item['action'] = {
+            'dry-run': 'would queue or reply' + (' and open a review issue' if review else ''),
+            'queue': 'queued for approval', 'auto': 'queued',
+        }[mode]
         state['mentions'][str(tweet['id'])] = {
             'tweet_id': str(tweet['id']),
             'author_id': str(tweet.get('author_id')),
@@ -346,10 +453,26 @@ def execute(store, client, mode, approve=(), reject=(), at=None, sleep=time.slee
             'created_at': tweet['created_at'],
             'phrase': phrase,
             'status': 'queued',
+            'draft': item['reply'],
         }
     if tweets:
         state['since_id'] = str(max(int(post['id']) for post in tweets))
     store.save()
+
+    if review and mode == 'queue':
+        texts = {str(tweet['id']): tweet.get('text') for tweet in tweets}
+        for tweet_id, row in sorted(state['mentions'].items(), key=lambda item: int(item[0])):
+            if row.get('status') != 'queued' or row.get('issue') or tweet_id in approve:
+                continue
+            try:
+                row['issue'] = review.open(row, texts.get(tweet_id))
+            except AgentHandlerError as exc:
+                review_errors.append(f'opening a review issue for {tweet_id}: {exc}')
+                continue
+            store.save()
+            for item in decisions:
+                if str(item['tweet']['id']) == tweet_id:
+                    item['action'] = f'queued, review issue #{row["issue"]}'
 
     queued = [tweet_id for tweet_id, row in state['mentions'].items() if row.get('status') in ('queued', 'sending')]
     to_send = [tweet_id for tweet_id in approve]
@@ -385,9 +508,27 @@ def execute(store, client, mode, approve=(), reject=(), at=None, sleep=time.slee
             if position + 1 < len(to_send):
                 sleep(10)
 
+    if review and not dry_run:
+        for tweet_id, row in sorted(state['mentions'].items(), key=lambda item: int(item[0])):
+            if row.get('status') != 'replied' or not row.get('issue') or row.get('issue_closed'):
+                continue
+            try:
+                if not row.get('issue_commented'):
+                    review.comment(row['issue'], f'https://x.com/{ACCOUNT}/status/{row["reply_id"]}')
+                    row['issue_commented'] = True
+                    store.save()
+                review.close(row['issue'])
+            except AgentHandlerError as exc:
+                review_errors.append(f'closing issue #{row["issue"]}: {exc}')
+                continue
+            row['issue_closed'] = True
+            store.save()
+
     report = render(mode, decisions, approvals)
     print(report, flush=True)
     write_summary(report)
+    if review_errors:
+        raise RuntimeError('Agent Handler review issue step failed: ' + '; '.join(review_errors))
     if failed:
         raise RuntimeError('X refused replies to ' + ', '.join(failed) + '. See the log for the reason.')
     return 0
@@ -401,7 +542,8 @@ def format_status(state):
              'counts=' + json.dumps(counts, sort_keys=True)]
     for tweet_id, row in sorted(state['mentions'].items(), key=lambda item: int(item[0])):
         if row.get('status') == 'queued':
-            lines.append(f'queued {tweet_id} "{row.get("phrase")}" {tweet_url(row.get("username"), tweet_id)}')
+            issue = f' issue #{row["issue"]}' if row.get('issue') else ''
+            lines.append(f'queued {tweet_id} "{row.get("phrase")}" {tweet_url(row.get("username"), tweet_id)}{issue}')
     return '\n'.join(lines) + '\n'
 
 
@@ -414,19 +556,26 @@ def main(argv=None):
         parser.error('Replying runs only in GitHub Actions. Use: python replies.py dry-run')
     directory = data_dir()
     configure_logging(directory)
-    secret_values = [os.environ.get(name, '') for name in SECRET_NAMES]
+    secret_values = [os.environ.get(name, '') for name in SECRET_NAMES + AH_SECRET_NAMES]
     try:
         with run_lock(directory / 'bot.lock'):
             store = ReplyStore(directory / 'replies.json')
             if args.command == 'status':
                 print(format_status(store.data), flush=True)
                 return 0
+            review = None
+            if agent_handler_configured():
+                review = ReviewQueue(AgentHandler.from_env(), os.environ.get('GITHUB_REPOSITORY') or REVIEW_REPO)
+            elif mode == 'queue':
+                LOG.warning('Agent Handler secrets are not set. Queued replies get no review issue; approve by ID.')
             return execute(
                 store,
                 XClient(load_credentials()),
                 mode,
                 approve=split_ids(os.environ.get('REPLY_APPROVE')),
                 reject=split_ids(os.environ.get('REPLY_REJECT')),
+                review=review,
+                scan=os.environ.get('REPLY_SCAN', '1') != '0',
             )
     except (RuntimeError, subprocess.SubprocessError, OSError, ValueError, KeyError, ApiError) as exc:
         message = redact(str(exc), secret_values)

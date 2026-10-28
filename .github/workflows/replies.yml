@@ -4,9 +4,16 @@ name: Triage replies
 # `npx t3 triage`. X only allows API replies to posts that mention or quote
 # @t3codes, so this reads the mention timeline. Scheduled runs do nothing
 # until the REPLY_MODE repository variable is set to queue or auto.
+#
+# In queue mode each match gets a review issue, opened through Merge Agent
+# Handler. Labeling it `approve` or closing it starts a run that acts on that
+# decision without reading mentions. Every run re-reads all open review
+# issues, so a dropped run only delays a decision.
 on:
   schedule:
     - cron: '47 * * * *'
+  issues:
+    types: [labeled, closed]
   workflow_dispatch:
     inputs:
       mode:
@@ -39,7 +46,11 @@ concurrency:
 
 jobs:
   reply:
-    if: github.event_name == 'workflow_dispatch' || vars.REPLY_MODE == 'queue' || vars.REPLY_MODE == 'auto'
+    if: >-
+      github.event_name == 'workflow_dispatch'
+      || (github.event_name == 'schedule' && (vars.REPLY_MODE == 'queue' || vars.REPLY_MODE == 'auto'))
+      || (github.event_name == 'issues' && contains(github.event.issue.labels.*.name, 'triage-reply')
+          && (github.event.action == 'closed' || github.event.label.name == 'approve'))
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -61,9 +72,13 @@ jobs:
           X_API_KEY_SECRET: ${{ secrets.X_API_KEY_SECRET }}
           X_ACCESS_TOKEN: ${{ secrets.X_ACCESS_TOKEN }}
           X_ACCESS_TOKEN_SECRET: ${{ secrets.X_ACCESS_TOKEN_SECRET }}
+          AGENT_HANDLER_API_KEY: ${{ secrets.AGENT_HANDLER_API_KEY }}
+          AGENT_HANDLER_TOOL_PACK_ID: ${{ secrets.AGENT_HANDLER_TOOL_PACK_ID }}
+          AGENT_HANDLER_REGISTERED_USER_ID: ${{ secrets.AGENT_HANDLER_REGISTERED_USER_ID }}
           BOT_DATA_DIR: ${{ github.workspace }}/.bot-state
           REPLY_MODE: ${{ github.event_name == 'workflow_dispatch' && inputs.mode || vars.REPLY_MODE }}
           REPLY_APPROVE: ${{ inputs.approve }}
           REPLY_REJECT: ${{ inputs.reject }}
+          REPLY_SCAN: ${{ github.event_name == 'issues' && '0' || '1' }}
           BOT_REMOTE_STATE: ${{ (github.event_name == 'workflow_dispatch' && inputs.mode == 'dry-run') && '0' || '1' }}
         run: python replies.py run
