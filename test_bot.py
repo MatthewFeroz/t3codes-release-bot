@@ -158,14 +158,58 @@ class BotTests(unittest.TestCase):
     def test_release_text_keeps_notes_and_drops_links(self):
         body = '## What\'s Changed\n* fix by @a in https://github.com/pingdotgg/t3code/pull/1\n\n'
         text = release_text({'tag_name': 'v1-nightly.1', 'body': body})
-        self.assertEqual(text, '## What\'s Changed\n* fix by @a')
-        self.assertIn('@a', text)
+        self.assertEqual(text, '## What\'s Changed\n* fix')
+        self.assertNotIn('@a', text)
         self.assertNotIn('http', text)
         self.assertNotIn('github.com', text)
         with self.assertRaisesRegex(RuntimeError, 'empty'):
             release_text({'tag_name': 'v1-nightly.1', 'body': '\n\n'})
         with self.assertRaisesRegex(RuntimeError, 'empty'):
             release_text({'tag_name': 'v1-nightly.1', 'body': 'https://github.com/pingdotgg/t3code/pull/1\n'})
+
+    def test_release_text_drops_author_credits_and_new_contributors(self):
+        body = (
+            '## What\'s Changed\n'
+            '* fix by @a in https://github.com/pingdotgg/t3code/pull/1\n'
+            '* pair work by @b, @c and @dependabot[bot] in https://github.com/pingdotgg/t3code/pull/2\n'
+            '* bump by @app/renovate in https://github.com/pingdotgg/t3code/pull/3\n'
+            '* @-mention a machine by @d in https://github.com/pingdotgg/t3code/pull/4\n'
+            '* thanks to @e for the report\n'
+            '\n'
+            '## New Contributors\n'
+            '* @f made their first contribution in https://github.com/pingdotgg/t3code/pull/5\n'
+            '\n'
+            '**Full Changelog**: https://github.com/pingdotgg/t3code/compare/a...b\n'
+        )
+        text = release_text({'tag_name': 'v1-nightly.1', 'body': body})
+        self.assertEqual(text, (
+            '## What\'s Changed\n'
+            '* fix\n'
+            '* pair work\n'
+            '* bump\n'
+            '* @-mention a machine\n'
+            '* thanks to @e for the report'
+        ))
+
+    def test_stuck_post_drops_credits_before_retrying(self):
+        # A nightly saved with `by @a` credits before this change still posts without them.
+        with tempfile.TemporaryDirectory() as temporary:
+            store = Store(Path(temporary) / 'posted.json')
+            store.data = {'outage_settled': True, 'releases': {
+                '5': {
+                    'tag': 'v-nightly.5',
+                    'published': '2026-10-05T00:00:00Z',
+                    'status': 'in_progress',
+                    'chunks': ['## What\'s Changed\n* fix by @a\n* other by @b'],
+                    'tweet_ids': [],
+                    'attempted_index': 0,
+                    'attempted_at': '2026-10-28T03:43:38Z',
+                },
+            }}
+            api = FakeX()
+            post_release(store, api, '99', release(5, 'v-nightly.5', '2026-10-05T00:00:00Z'), sleep=lambda _: None)
+            self.assertEqual(api.created, [('## What\'s Changed\n* fix\n* other', None)])
+            self.assertEqual(store.data['releases']['5']['status'], 'posted')
 
     def test_http_error_includes_x_message_and_redacts_secrets(self):
         secret = 'super-secret-token'
@@ -256,7 +300,8 @@ class BotTests(unittest.TestCase):
             self.assertEqual(joined, release_text(item))
             self.assertGreater(weight(joined), SHORT_LIMIT)
             self.assertLessEqual(weight(joined), DEFAULT_LIMIT)
-            self.assertIn('* fix by @a', joined)
+            self.assertIn('* fix\n', joined)
+            self.assertNotIn('@a', joined)
             self.assertNotIn('http', joined)
             self.assertNotIn('github.com', joined)
             self.assertEqual(store.data['releases']['5']['status'], 'posted')
@@ -352,7 +397,7 @@ class BotTests(unittest.TestCase):
                 code = execute(store, github, dry_run=False, client=api, sleep=lambda _: None)
             self.assertEqual(code, 0)
             texts = [text for text, _ in api.created]
-            self.assertEqual(texts, ['## What\'s Changed\n* fix by @a', 'later nightly'])
+            self.assertEqual(texts, ['## What\'s Changed\n* fix', 'later nightly'])
             self.assertNotIn('http', texts[0])
             self.assertNotIn('old notes', texts)
             self.assertEqual(store.data['releases']['3']['status'], 'skipped')
@@ -485,7 +530,8 @@ class BotTests(unittest.TestCase):
             '**Full Changelog**: https://github.com/pingdotgg/t3code/compare/a...b\n'
         )
         report = render_dry_run([release(1, 'v-nightly.1', '2026-10-05T00:00:00Z', body)])
-        self.assertIn('* fix by @a', report)
+        self.assertIn('* fix', report)
+        self.assertNotIn('@a', report)
         self.assertNotIn('http', report)
         self.assertNotIn('github.com', report)
         self.assertNotIn('Full Changelog', report)

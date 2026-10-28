@@ -259,10 +259,29 @@ def release_text(release):
     tag = release.get('tag_name') or release.get('id')
     if body is None:
         raise RuntimeError(f'{tag}: GitHub release payload had no notes. Nothing was posted.')
-    text = ensure_plain(str(body)).strip()
+    text = post_text(str(body)).strip()
     if not text.strip():
         raise RuntimeError(f'{tag}: nightly release notes are empty. Nothing was posted.')
     return text
+
+
+_HANDLE = r'@(?:app/)?[A-Za-z0-9_-]+(?:\[bot\])?'
+_CREDIT = re.compile(rf'[ \t]+by[ \t]+{_HANDLE}(?:(?:[ \t]*,[ \t]*|[ \t]+and[ \t]+){_HANDLE})*[ \t]*$', re.M)
+_FIRST_CONTRIBUTION = re.compile(rf'^[ \t]*[*+-][ \t]+{_HANDLE} made their first contribution\b.*(?:\n|$)', re.M)
+_EMPTY_CONTRIBUTORS = re.compile(r'^#+[ \t]*New Contributors[ \t]*(?:\n[ \t]*)*(?=^#|\Z)', re.M | re.I)
+
+
+def post_text(text):
+    """Return text for X: links removed and author credits dropped.
+
+    X rejects a post with too many @mentions, and a nightly credits dozens of
+    authors. `* fix by @a in <PR link>` becomes `* fix`, and the New
+    Contributors section is dropped. Other @mentions in the notes stay.
+    """
+    text = ensure_plain(text)
+    text = _CREDIT.sub('', text)
+    text = _FIRST_CONTRIBUTION.sub('', text)
+    return _EMPTY_CONTRIBUTORS.sub('', text)
 
 
 def load_credentials(env=None):
@@ -323,7 +342,7 @@ class XClient:
         return str(user['id'])
 
     def create(self, text, parent):
-        text = ensure_plain(text)
+        text = post_text(text)
         limit = post_limit()
         size = weight(text)
         if size > limit:
@@ -623,7 +642,7 @@ def post_release(store, client, user_id, release, sleep):
         for index, chunk in enumerate(chunks):
             if index < len(ids):
                 continue
-            plain = ensure_plain(chunk)
+            plain = post_text(chunk)
             if plain != chunk:
                 chunks[index] = plain
                 store.save()
