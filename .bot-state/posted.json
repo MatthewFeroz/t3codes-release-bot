@@ -1,0 +1,1209 @@
+{
+  "baseline": "2026-09-19T12:46:30Z",
+  "outage_settled": true,
+  "post_after": {
+    "id": 426111391,
+    "published": "2026-10-27T23:47:10Z",
+    "tag": "v0.1.4-nightly.20261027.3796"
+  },
+  "releases": {
+    "392070120": {
+      "published": "2026-09-19T12:46:30Z",
+      "reason": "already-posted",
+      "status": "posted",
+      "tag": "v0.0.43-nightly.20260919.1962",
+      "tweet_ids": [
+        "2101305465472757851",
+        "2101305475241333211",
+        "2101305485345370464",
+        "2101305495608872991",
+        "2101305505712844856",
+        "2101305515494023539",
+        "2101305525400957008",
+        "2101305535219835075",
+        "2101305545034498491",
+        "2101305554865893608"
+      ]
+    },
+    "392196593": {
+      "published": "2026-09-19T19:59:18Z",
+      "reason": "already-posted",
+      "status": "posted",
+      "tag": "v0.0.43-nightly.20260919.1978",
+      "tweet_ids": [
+        "2101436161608884475"
+      ]
+    },
+    "392291547": {
+      "published": "2026-09-20T02:48:30Z",
+      "reason": "previously-skipped",
+      "status": "skipped",
+      "tag": "v0.0.43-nightly.20260920.1990",
+      "tweet_ids": []
+    },
+    "392387889": {
+      "published": "2026-09-20T10:00:48Z",
+      "reason": "already-posted",
+      "status": "posted",
+      "tag": "v0.0.43-nightly.20260920.2005",
+      "tweet_ids": [
+        "2101634379676267008"
+      ]
+    },
+    "392498506": {
+      "published": "2026-09-20T16:38:28Z",
+      "reason": "already-posted",
+      "status": "posted",
+      "tag": "v0.0.43-nightly.20260920.2018",
+      "tweet_ids": [
+        "2101745007191380298"
+      ]
+    },
+    "392602160": {
+      "published": "2026-09-20T22:57:19Z",
+      "reason": "previously-skipped",
+      "status": "skipped",
+      "tag": "v0.0.43-nightly.20260920.2031",
+      "tweet_ids": []
+    },
+    "392726174": {
+      "published": "2026-09-21T06:04:04Z",
+      "reason": "previously-skipped",
+      "status": "skipped",
+      "tag": "v0.0.43-nightly.20260921.2044",
+      "tweet_ids": []
+    },
+    "392969872": {
+      "published": "2026-09-21T13:09:06Z",
+      "reason": "already-posted",
+      "status": "posted",
+      "tag": "v0.0.43-nightly.20260921.2058",
+      "tweet_ids": [
+        "2102081163762307091"
+      ]
+    },
+    "393242293": {
+      "published": "2026-09-21T19:38:19Z",
+      "reason": "already-posted",
+      "status": "posted",
+      "tag": "v0.0.43-nightly.20260921.2071",
+      "tweet_ids": [
+        "2102141696968642905"
+      ]
+    },
+    "393408459": {
+      "published": "2026-09-22T02:07:57Z",
+      "reason": "previously-skipped",
+      "status": "skipped",
+      "tag": "v0.0.43-nightly.20260922.2083",
+      "tweet_ids": []
+    },
+    "393574901": {
+      "published": "2026-09-22T08:50:01Z",
+      "reason": "previously-skipped",
+      "status": "skipped",
+      "tag": "v0.0.43-nightly.20260922.2096",
+      "tweet_ids": []
+    },
+    "393876097": {
+      "published": "2026-09-22T15:40:31Z",
+      "reason": "already-posted",
+      "status": "posted",
+      "tag": "v0.0.43-nightly.20260922.2110",
+      "tweet_ids": [
+        "2102471474674122976"
+      ]
+    },
+    "394152170": {
+      "published": "2026-09-22T21:59:17Z",
+      "reason": "previously-skipped",
+      "status": "skipped",
+      "tag": "v0.0.43-nightly.20260922.2123",
+      "tweet_ids": []
+    },
+    "394304840": {
+      "published": "2026-09-23T04:45:07Z",
+      "reason": "previously-skipped",
+      "status": "skipped",
+      "tag": "v0.0.43-nightly.20260923.2135",
+      "tweet_ids": []
+    },
+    "394597661": {
+      "published": "2026-09-23T11:40:39Z",
+      "reason": "previously-skipped",
+      "status": "skipped",
+      "tag": "v0.0.43-nightly.20260923.2150",
+      "tweet_ids": []
+    },
+    "395116552": {
+      "published": "2026-09-23T22:38:28Z",
+      "reason": "already-posted",
+      "status": "posted",
+      "tag": "v0.0.43-nightly.20260923.2173",
+      "tweet_ids": [
+        "2102906170738614280"
+      ]
+    },
+    "395342825": {
+      "published": "2026-09-24T05:04:35Z",
+      "reason": "previously-skipped",
+      "status": "skipped",
+      "tag": "v0.0.43-nightly.20260924.2187",
+      "tweet_ids": []
+    },
+    "395611425": {
+      "published": "2026-09-24T11:37:24Z",
+      "reason": "already-posted",
+      "status": "posted",
+      "tag": "v0.0.43-nightly.20260924.2200",
+      "tweet_ids": [
+        "2103138678596133297"
+      ]
+    },
+    "395941616": {
+      "published": "2026-09-24T18:08:13Z",
+      "reason": "already-posted",
+      "status": "posted",
+      "tag": "v0.0.43-nightly.20260924.2213",
+      "tweet_ids": [
+        "2103200124520538495"
+      ]
+    },
+    "396132680": {
+      "published": "2026-09-24T22:42:09Z",
+      "reason": "previously-skipped",
+      "status": "skipped",
+      "tag": "v0.0.43-nightly.20260924.2223",
+      "tweet_ids": []
+    },
+    "396318671": {
+      "published": "2026-09-25T05:05:30Z",
+      "reason": "previously-skipped",
+      "status": "skipped",
+      "tag": "v0.0.43-nightly.20260925.2237",
+      "tweet_ids": []
+    },
+    "396556104": {
+      "published": "2026-09-25T11:42:14Z",
+      "reason": "previously-skipped",
+      "status": "skipped",
+      "tag": "v0.0.43-nightly.20260925.2251",
+      "tweet_ids": []
+    },
+    "396912892": {
+      "published": "2026-09-25T20:40:01Z",
+      "reason": "previously-skipped",
+      "status": "skipped",
+      "tag": "v0.0.43-nightly.20260925.2269",
+      "tweet_ids": []
+    },
+    "397053871": {
+      "published": "2026-09-26T03:07:13Z",
+      "reason": "previously-skipped",
+      "status": "skipped",
+      "tag": "v0.0.43-nightly.20260926.2282",
+      "tweet_ids": []
+    },
+    "397393855": {
+      "published": "2026-09-26T21:01:01Z",
+      "reason": "previously-skipped",
+      "status": "skipped",
+      "tag": "v0.0.43-nightly.20260926.2318",
+      "tweet_ids": []
+    },
+    "397503953": {
+      "published": "2026-09-27T04:07:34Z",
+      "reason": "previously-skipped",
+      "status": "skipped",
+      "tag": "v0.0.43-nightly.20260927.2331",
+      "tweet_ids": []
+    },
+    "397606960": {
+      "published": "2026-09-27T10:39:21Z",
+      "reason": "already-posted",
+      "status": "posted",
+      "tag": "v0.0.43-nightly.20260927.2344",
+      "tweet_ids": [
+        "2104208830225866987"
+      ]
+    },
+    "397810964": {
+      "published": "2026-09-27T21:01:50Z",
+      "reason": "already-posted",
+      "status": "posted",
+      "tag": "v0.0.43-nightly.20260927.2365",
+      "tweet_ids": [
+        "2104332621673046315"
+      ]
+    },
+    "397939416": {
+      "published": "2026-09-28T03:53:56Z",
+      "reason": "already-posted",
+      "status": "posted",
+      "tag": "v0.0.43-nightly.20260928.2375",
+      "tweet_ids": [
+        "2104464203331387411"
+      ]
+    },
+    "398529741": {
+      "published": "2026-09-28T18:48:33Z",
+      "reason": "already-posted",
+      "status": "posted",
+      "tag": "v0.0.43-nightly.20260928.2402",
+      "tweet_ids": [
+        "2104692660774584344"
+      ]
+    },
+    "398748095": {
+      "published": "2026-09-29T01:20:22Z",
+      "reason": "already-posted",
+      "status": "posted",
+      "tag": "v0.0.43-nightly.20260929.2416",
+      "tweet_ids": [
+        "2104752299755086059",
+        "2104752322681163999"
+      ]
+    },
+    "398922894": {
+      "published": "2026-09-29T07:49:16Z",
+      "reason": "already-posted",
+      "status": "posted",
+      "tag": "v0.0.43-nightly.20260929.2428",
+      "tweet_ids": [
+        "2104850895624347979",
+        "2104850917967487198"
+      ]
+    },
+    "399431294": {
+      "published": "2026-09-29T18:48:34Z",
+      "reason": "already-posted",
+      "status": "posted",
+      "tag": "v0.0.43-nightly.20260929.2450",
+      "tweet_ids": [
+        "2105036485674356965"
+      ]
+    },
+    "399496326": {
+      "published": "2026-09-29T20:18:26Z",
+      "reason": "already-posted",
+      "status": "posted",
+      "tag": "v0.0.44-nightly.20260929.2456",
+      "tweet_ids": [
+        "2105036517991432201"
+      ]
+    },
+    "399681146": {
+      "published": "2026-09-30T02:54:12Z",
+      "reason": "already-posted",
+      "status": "posted",
+      "tag": "v0.0.45-nightly.20260930.2468",
+      "tweet_ids": [
+        "2105186461850931261",
+        "2105186484944855081",
+        "2105186508500062418"
+      ]
+    },
+    "399906908": {
+      "published": "2026-09-30T09:46:14Z",
+      "reason": "already-posted",
+      "status": "posted",
+      "tag": "v0.0.45-nightly.20260930.2481",
+      "tweet_ids": [
+        "2105292101336600679"
+      ]
+    },
+    "400219605": {
+      "published": "2026-09-30T16:08:31Z",
+      "reason": "already-posted",
+      "status": "posted",
+      "tag": "v0.0.45-nightly.20260930.2493",
+      "tweet_ids": [
+        "2105376792294969771"
+      ]
+    },
+    "400490519": {
+      "published": "2026-09-30T22:44:58Z",
+      "reason": "already-posted",
+      "status": "posted",
+      "tag": "v0.0.45-nightly.20260930.2507",
+      "tweet_ids": [
+        "2105444606150099130",
+        "2105444629155905543"
+      ]
+    },
+    "400521975": {
+      "published": "2026-09-30T23:59:53Z",
+      "reason": "already-posted",
+      "status": "posted",
+      "tag": "v0.0.45-nightly.20260930.2510",
+      "tweet_ids": [
+        "2105535788431663341"
+      ]
+    },
+    "400720214": {
+      "published": "2026-10-01T07:04:59Z",
+      "reason": "already-posted",
+      "status": "posted",
+      "tag": "v0.0.45-nightly.20261001.2523",
+      "tweet_ids": [
+        "2105646849507971090",
+        "2105646881137201177",
+        "2105646908387557859",
+        "2105646934211830034"
+      ]
+    },
+    "400734701": {
+      "published": "2026-10-01T07:28:55Z",
+      "reason": "already-posted",
+      "status": "posted",
+      "tag": "v0.0.45-nightly.20261001.2525",
+      "tweet_ids": [
+        "2105646967250366606"
+      ]
+    },
+    "401025174": {
+      "published": "2026-10-01T14:01:29Z",
+      "reason": "already-posted",
+      "status": "posted",
+      "tag": "v0.0.45-nightly.20261001.2539",
+      "tweet_ids": [
+        "2105732757695631459"
+      ]
+    },
+    "401337483": {
+      "published": "2026-10-01T20:39:15Z",
+      "reason": "already-posted",
+      "status": "posted",
+      "tag": "v0.0.45-nightly.20261001.2552",
+      "tweet_ids": [
+        "2105797862588313948",
+        "2105797887099842569",
+        "2105797911087083747",
+        "2105797934403178887"
+      ]
+    },
+    "401449666": {
+      "published": "2026-10-02T00:20:15Z",
+      "reason": "already-posted",
+      "status": "posted",
+      "tag": "v0.0.45-nightly.20261002.2561",
+      "tweet_ids": [
+        "2105843920798167223",
+        "2105843944676274428"
+      ]
+    },
+    "401595690": {
+      "published": "2026-10-02T06:50:43Z",
+      "reason": "already-posted",
+      "status": "posted",
+      "tag": "v0.0.45-nightly.20261002.2572",
+      "tweet_ids": [
+        "2105939361951043658",
+        "2105939384642236545"
+      ]
+    },
+    "401829418": {
+      "published": "2026-10-02T13:10:39Z",
+      "reason": "already-posted",
+      "status": "posted",
+      "tag": "v0.0.45-nightly.20261002.2584",
+      "tweet_ids": [
+        "2106048556134240356"
+      ]
+    },
+    "402040407": {
+      "published": "2026-10-02T17:59:35Z",
+      "reason": "already-posted",
+      "status": "posted",
+      "tag": "v0.0.45-nightly.20261002.2595",
+      "tweet_ids": [
+        "2106123033333375247"
+      ]
+    },
+    "402254482": {
+      "published": "2026-10-03T01:10:51Z",
+      "reason": "already-posted",
+      "status": "posted",
+      "tag": "v0.0.46-nightly.20261003.2610",
+      "tweet_ids": [
+        "2106271056306798692",
+        "2106271079631335900",
+        "2106271103190753613",
+        "2106271126502711310",
+        "2106271150183735460"
+      ]
+    },
+    "402394565": {
+      "published": "2026-10-03T07:43:48Z",
+      "reason": "already-posted",
+      "status": "posted",
+      "tag": "v0.0.46-nightly.20261003.2623",
+      "tweet_ids": [
+        "2106361885779996919",
+        "2106361908332753142",
+        "2106361930411634723",
+        "2106361952490381620",
+        "2106361974502105515",
+        "2106361996631273510",
+        "2106362019184005291"
+      ]
+    },
+    "402539952": {
+      "published": "2026-10-03T14:08:42Z",
+      "reason": "already-posted",
+      "status": "posted",
+      "tag": "v0.0.46-nightly.20261003.2632",
+      "tweet_ids": [
+        "2106433112670659020",
+        "2106433135831638342",
+        "2106433159302926705"
+      ]
+    },
+    "402697376": {
+      "published": "2026-10-03T21:23:19Z",
+      "reason": "already-posted",
+      "status": "posted",
+      "tag": "v0.0.46-nightly.20261003.2638",
+      "tweet_ids": [
+        "2106520379363635439",
+        "2106520402847543476",
+        "2106520427187028180",
+        "2106520450784231553",
+        "2106520474788188440"
+      ]
+    },
+    "402813230": {
+      "published": "2026-10-04T03:41:53Z",
+      "reason": "already-posted",
+      "status": "posted",
+      "tag": "v0.0.46-nightly.20261004.2644",
+      "tweet_ids": [
+        "2106682271155597337",
+        "2106682293859295743",
+        "2106682316827357357",
+        "2106682340705522062",
+        "2106682363950366977",
+        "2106682388096909415",
+        "2106682411610206464",
+        "2106682435068940762",
+        "2106682458343194866"
+      ]
+    },
+    "402981902": {
+      "published": "2026-10-04T11:16:51Z",
+      "reason": "already-posted",
+      "status": "posted",
+      "tag": "v0.0.46-nightly.20261004.2648",
+      "tweet_ids": [
+        "2106766722703515709",
+        "2106766744996258302",
+        "2106766767641280841",
+        "2106766789917225260",
+        "2106766812868493375",
+        "2106766834976633250",
+        "2106766857948787047",
+        "2106766881105551843"
+      ]
+    },
+    "403149323": {
+      "published": "2026-10-04T18:23:26Z",
+      "reason": "already-posted",
+      "status": "posted",
+      "tag": "v0.0.46-nightly.20261004.2652",
+      "tweet_ids": [
+        "2106830866106499099",
+        "2106830890332741993",
+        "2106830914785591696",
+        "2106830940194664594",
+        "2106830965318566285"
+      ]
+    },
+    "403229214": {
+      "published": "2026-10-04T22:06:13Z",
+      "reason": "already-posted",
+      "status": "posted",
+      "tag": "v0.0.46-nightly.20261004.2657",
+      "tweet_ids": [
+        "2106884269649846415",
+        "2106884293137977416"
+      ]
+    },
+    "403373550": {
+      "published": "2026-10-05T04:46:17Z",
+      "reason": "already-posted",
+      "status": "posted",
+      "tag": "v0.0.46-nightly.20261005.2667",
+      "tweet_ids": [
+        "2107033610037367003",
+        "2107033634272084300",
+        "2107033658674540784",
+        "2107033693327852010"
+      ]
+    },
+    "403622118": {
+      "published": "2026-10-05T11:02:18Z",
+      "reason": "already-posted",
+      "status": "posted",
+      "tag": "v0.0.46-nightly.20261005.2676",
+      "tweet_ids": [
+        "2107175671986373005",
+        "2107175699039629814"
+      ]
+    },
+    "403968638": {
+      "published": "2026-10-05T17:36:38Z",
+      "reason": "already-posted",
+      "status": "posted",
+      "tag": "v0.0.46-nightly.20261005.2689",
+      "tweet_ids": [
+        "2107175733562843447",
+        "2107175760020566399",
+        "2107175791209463953",
+        "2107175817851687231"
+      ]
+    },
+    "404181562": {
+      "published": "2026-10-05T23:58:57Z",
+      "reason": "already-posted",
+      "status": "posted",
+      "tag": "v0.0.46-nightly.20261005.2702",
+      "tweet_ids": [
+        "2107271820378243130",
+        "2107271844944331071",
+        "2107271870261199052",
+        "2107271894386839758",
+        "2107271918306906163",
+        "2107271946119286825",
+        "2107271970135961976",
+        "2107271998330073474",
+        "2107272022111793616",
+        "2107272045247508856"
+      ]
+    },
+    "404987644": {
+      "published": "2026-10-06T17:38:47Z",
+      "reason": "already-posted",
+      "status": "posted",
+      "tag": "v0.0.46-nightly.20261006.2735",
+      "tweet_ids": [
+        "2107566537527685385",
+        "2107566570406871283",
+        "2107566597321756692",
+        "2107566626719617149",
+        "2107566652363616397",
+        "2107566677726494937",
+        "2107566702636528009",
+        "2107566726959251600",
+        "2107566752716472495",
+        "2107566778641482015",
+        "2107566804977525109",
+        "2107566830692753867",
+        "2107566859537064179",
+        "2107566885373902875",
+        "2107566911600890354",
+        "2107566941883777260",
+        "2107566969557811599",
+        "2107567001115746746",
+        "2107567037484552314",
+        "2107567069671608703"
+      ]
+    },
+    "405235554": {
+      "published": "2026-10-07T00:09:56Z",
+      "reason": "already-posted",
+      "status": "posted",
+      "tag": "v0.0.46-nightly.20261006.2752",
+      "tweet_ids": [
+        "2107632385085091885",
+        "2107632410582233141",
+        "2107632435899126094",
+        "2107632461710766544",
+        "2107632486914371858",
+        "2107632513581760575",
+        "2107632538550419506"
+      ]
+    },
+    "405417701": {
+      "published": "2026-10-07T05:40:26Z",
+      "reason": "outage-backlog",
+      "status": "skipped",
+      "tag": "v0.0.46-nightly.20261007.2761",
+      "tweet_ids": []
+    },
+    "405712531": {
+      "published": "2026-10-07T12:00:49Z",
+      "reason": "outage-backlog",
+      "status": "skipped",
+      "tag": "v0.0.46-nightly.20261007.2774",
+      "tweet_ids": []
+    },
+    "406057919": {
+      "published": "2026-10-07T18:45:29Z",
+      "reason": "outage-backlog",
+      "status": "skipped",
+      "tag": "v0.0.46-nightly.20261007.2787",
+      "tweet_ids": []
+    },
+    "406307441": {
+      "published": "2026-10-08T01:18:17Z",
+      "reason": "outage-backlog",
+      "status": "skipped",
+      "tag": "v0.0.46-nightly.20261008.2801",
+      "tweet_ids": []
+    },
+    "406564301": {
+      "published": "2026-10-08T07:52:52Z",
+      "reason": "outage-backlog",
+      "status": "skipped",
+      "tag": "v0.0.46-nightly.20261008.2813",
+      "tweet_ids": []
+    },
+    "406713182": {
+      "published": "2026-10-08T10:41:00Z",
+      "reason": "outage-backlog",
+      "status": "skipped",
+      "tag": "v0.0.46-nightly.20261008.2819",
+      "tweet_ids": []
+    },
+    "407075608": {
+      "published": "2026-10-08T17:06:46Z",
+      "reason": "outage-backlog",
+      "status": "skipped",
+      "tag": "v0.0.46-nightly.20261008.2833",
+      "tweet_ids": []
+    },
+    "407346359": {
+      "published": "2026-10-08T23:38:21Z",
+      "reason": "outage-backlog",
+      "status": "skipped",
+      "tag": "v0.0.46-nightly.20261008.2849",
+      "tweet_ids": []
+    },
+    "407575573": {
+      "published": "2026-10-09T06:04:56Z",
+      "reason": "outage-backlog",
+      "status": "skipped",
+      "tag": "v0.0.46-nightly.20261009.2861",
+      "tweet_ids": []
+    },
+    "407908358": {
+      "published": "2026-10-09T12:47:31Z",
+      "reason": "outage-backlog",
+      "status": "skipped",
+      "tag": "v0.0.46-nightly.20261009.2873",
+      "tweet_ids": []
+    },
+    "408249416": {
+      "published": "2026-10-09T19:06:52Z",
+      "reason": "outage-backlog",
+      "status": "skipped",
+      "tag": "v0.0.46-nightly.20261009.2886",
+      "tweet_ids": []
+    },
+    "408513026": {
+      "published": "2026-10-10T01:56:54Z",
+      "reason": "outage-backlog",
+      "status": "skipped",
+      "tag": "v0.0.46-nightly.20261010.2908",
+      "tweet_ids": []
+    },
+    "408815945": {
+      "published": "2026-10-10T08:44:21Z",
+      "reason": "outage-backlog",
+      "status": "skipped",
+      "tag": "v0.0.46-nightly.20261010.2922",
+      "tweet_ids": []
+    },
+    "409017682": {
+      "published": "2026-10-10T15:02:35Z",
+      "reason": "outage-backlog",
+      "status": "skipped",
+      "tag": "v0.0.46-nightly.20261010.2935",
+      "tweet_ids": []
+    },
+    "409221618": {
+      "published": "2026-10-10T21:39:05Z",
+      "reason": "outage-backlog",
+      "status": "skipped",
+      "tag": "v0.0.46-nightly.20261010.2948",
+      "tweet_ids": []
+    },
+    "409329647": {
+      "published": "2026-10-11T01:47:38Z",
+      "reason": "outage-backlog",
+      "status": "skipped",
+      "tag": "v0.0.46-nightly.20261011.2955",
+      "tweet_ids": []
+    },
+    "409524798": {
+      "published": "2026-10-11T08:07:32Z",
+      "reason": "outage-backlog",
+      "status": "skipped",
+      "tag": "v0.0.46-nightly.20261011.2967",
+      "tweet_ids": []
+    },
+    "409722238": {
+      "published": "2026-10-11T14:37:21Z",
+      "reason": "outage-backlog",
+      "status": "skipped",
+      "tag": "v0.0.46-nightly.20261011.2980",
+      "tweet_ids": []
+    },
+    "409937143": {
+      "published": "2026-10-11T21:36:11Z",
+      "reason": "outage-backlog",
+      "status": "skipped",
+      "tag": "v0.0.46-nightly.20261011.2994",
+      "tweet_ids": []
+    },
+    "410349107": {
+      "published": "2026-10-12T08:05:57Z",
+      "reason": "outage-backlog",
+      "status": "skipped",
+      "tag": "v0.0.46-nightly.20261012.3010",
+      "tweet_ids": []
+    },
+    "410747576": {
+      "published": "2026-10-12T15:17:45Z",
+      "reason": "outage-backlog",
+      "status": "skipped",
+      "tag": "v0.0.46-nightly.20261012.3021",
+      "tweet_ids": []
+    },
+    "411029769": {
+      "published": "2026-10-12T22:01:12Z",
+      "reason": "outage-backlog",
+      "status": "skipped",
+      "tag": "v0.0.46-nightly.20261012.3035",
+      "tweet_ids": []
+    },
+    "411105068": {
+      "published": "2026-10-13T00:27:10Z",
+      "reason": "outage-backlog",
+      "status": "skipped",
+      "tag": "v0.0.46-nightly.20261013.3040",
+      "tweet_ids": []
+    },
+    "411151584": {
+      "published": "2026-10-13T01:37:04Z",
+      "reason": "outage-backlog",
+      "status": "skipped",
+      "tag": "v0.0.46-nightly.20261013.3042",
+      "tweet_ids": []
+    },
+    "411442829": {
+      "published": "2026-10-13T08:14:16Z",
+      "reason": "outage-backlog",
+      "status": "skipped",
+      "tag": "v0.0.46-nightly.20261013.3053",
+      "tweet_ids": []
+    },
+    "411792314": {
+      "published": "2026-10-13T14:50:47Z",
+      "reason": "outage-backlog",
+      "status": "skipped",
+      "tag": "v0.0.46-nightly.20261013.3066",
+      "tweet_ids": []
+    },
+    "412132569": {
+      "published": "2026-10-13T21:38:47Z",
+      "reason": "outage-backlog",
+      "status": "skipped",
+      "tag": "v0.0.46-nightly.20261013.3080",
+      "tweet_ids": []
+    },
+    "412345243": {
+      "published": "2026-10-14T04:44:41Z",
+      "reason": "outage-backlog",
+      "status": "skipped",
+      "tag": "v0.0.46-nightly.20261014.3093",
+      "tweet_ids": []
+    },
+    "412581848": {
+      "published": "2026-10-14T10:16:56Z",
+      "reason": "outage-backlog",
+      "status": "skipped",
+      "tag": "v0.0.46-nightly.20261014.3105",
+      "tweet_ids": []
+    },
+    "412951503": {
+      "published": "2026-10-14T16:42:48Z",
+      "reason": "outage-backlog",
+      "status": "skipped",
+      "tag": "v0.0.46-nightly.20261014.3118",
+      "tweet_ids": []
+    },
+    "413274231": {
+      "published": "2026-10-14T23:36:32Z",
+      "reason": "outage-backlog",
+      "status": "skipped",
+      "tag": "v0.0.46-nightly.20261014.3132",
+      "tweet_ids": []
+    },
+    "413500597": {
+      "published": "2026-10-15T06:54:19Z",
+      "reason": "outage-backlog",
+      "status": "skipped",
+      "tag": "v0.0.46-nightly.20261015.3145",
+      "tweet_ids": []
+    },
+    "413826726": {
+      "published": "2026-10-15T13:10:50Z",
+      "reason": "outage-backlog",
+      "status": "skipped",
+      "tag": "v0.0.46-nightly.20261015.3158",
+      "tweet_ids": []
+    },
+    "414198471": {
+      "published": "2026-10-15T19:35:51Z",
+      "reason": "outage-backlog",
+      "status": "skipped",
+      "tag": "v0.0.46-nightly.20261015.3171",
+      "tweet_ids": []
+    },
+    "414320507": {
+      "published": "2026-10-15T22:08:16Z",
+      "reason": "outage-backlog",
+      "status": "skipped",
+      "tag": "v0.0.46-nightly.20261015.3176",
+      "tweet_ids": []
+    },
+    "414545170": {
+      "published": "2026-10-16T04:42:17Z",
+      "reason": "outage-backlog",
+      "status": "skipped",
+      "tag": "v0.1.1-nightly.20261016.3190",
+      "tweet_ids": []
+    },
+    "414862531": {
+      "published": "2026-10-16T10:58:18Z",
+      "reason": "outage-backlog",
+      "status": "skipped",
+      "tag": "v0.1.1-nightly.20261016.3203",
+      "tweet_ids": []
+    },
+    "415215728": {
+      "published": "2026-10-16T17:37:00Z",
+      "reason": "outage-backlog",
+      "status": "skipped",
+      "tag": "v0.1.1-nightly.20261016.3218",
+      "tweet_ids": []
+    },
+    "415503602": {
+      "published": "2026-10-17T01:05:16Z",
+      "reason": "outage-backlog",
+      "status": "skipped",
+      "tag": "v0.1.1-nightly.20261017.3234",
+      "tweet_ids": []
+    },
+    "415544927": {
+      "published": "2026-10-17T02:51:44Z",
+      "reason": "outage-backlog",
+      "status": "skipped",
+      "tag": "v0.1.1-nightly.20261017.3238",
+      "tweet_ids": []
+    },
+    "415972690": {
+      "published": "2026-10-17T17:56:04Z",
+      "reason": "outage-backlog",
+      "status": "skipped",
+      "tag": "v0.1.1-nightly.20261017.3272",
+      "tweet_ids": []
+    },
+    "416164062": {
+      "published": "2026-10-18T01:09:51Z",
+      "reason": "outage-backlog",
+      "status": "skipped",
+      "tag": "v0.1.1-nightly.20261018.3285",
+      "tweet_ids": []
+    },
+    "416305777": {
+      "published": "2026-10-18T07:36:01Z",
+      "reason": "outage-backlog",
+      "status": "skipped",
+      "tag": "v0.1.1-nightly.20261018.3302",
+      "tweet_ids": []
+    },
+    "416479347": {
+      "published": "2026-10-18T13:53:58Z",
+      "reason": "outage-backlog",
+      "status": "skipped",
+      "tag": "v0.1.1-nightly.20261018.3315",
+      "tweet_ids": []
+    },
+    "416725068": {
+      "published": "2026-10-18T21:31:48Z",
+      "reason": "outage-backlog",
+      "status": "skipped",
+      "tag": "v0.1.1-nightly.20261018.3331",
+      "tweet_ids": []
+    },
+    "416762992": {
+      "published": "2026-10-18T23:06:20Z",
+      "reason": "outage-backlog",
+      "status": "skipped",
+      "tag": "v0.1.1-nightly.20261018.3335",
+      "tweet_ids": []
+    },
+    "416935740": {
+      "published": "2026-10-19T05:36:55Z",
+      "reason": "outage-backlog",
+      "status": "skipped",
+      "tag": "v0.1.1-nightly.20261019.3348",
+      "tweet_ids": []
+    },
+    "417239767": {
+      "published": "2026-10-19T11:59:19Z",
+      "reason": "outage-backlog",
+      "status": "skipped",
+      "tag": "v0.1.1-nightly.20261019.3360",
+      "tweet_ids": []
+    },
+    "417627104": {
+      "published": "2026-10-19T18:47:42Z",
+      "reason": "outage-backlog",
+      "status": "skipped",
+      "tag": "v0.1.1-nightly.20261019.3373",
+      "tweet_ids": []
+    },
+    "417918892": {
+      "published": "2026-10-20T01:46:21Z",
+      "reason": "outage-backlog",
+      "status": "skipped",
+      "tag": "v0.1.1-nightly.20261020.3386",
+      "tweet_ids": []
+    },
+    "418190711": {
+      "published": "2026-10-20T08:56:40Z",
+      "reason": "outage-backlog",
+      "status": "skipped",
+      "tag": "v0.1.1-nightly.20261020.3401",
+      "tweet_ids": []
+    },
+    "418286158": {
+      "published": "2026-10-20T10:44:44Z",
+      "reason": "outage-backlog",
+      "status": "skipped",
+      "tag": "v0.1.1-nightly.20261020.3411",
+      "tweet_ids": []
+    },
+    "418936865": {
+      "published": "2026-10-20T22:17:25Z",
+      "reason": "outage-backlog",
+      "status": "skipped",
+      "tag": "v0.1.1-nightly.20261020.3438",
+      "tweet_ids": []
+    },
+    "419162876": {
+      "published": "2026-10-21T04:33:48Z",
+      "reason": "outage-backlog",
+      "status": "skipped",
+      "tag": "v0.1.2-nightly.20261021.3457",
+      "tweet_ids": []
+    },
+    "419439743": {
+      "published": "2026-10-21T10:46:22Z",
+      "reason": "outage-backlog",
+      "status": "skipped",
+      "tag": "v0.1.2-nightly.20261021.3471",
+      "tweet_ids": []
+    },
+    "419450740": {
+      "published": "2026-10-21T10:59:13Z",
+      "reason": "outage-backlog",
+      "status": "skipped",
+      "tag": "v0.1.2-nightly.20261021.3473",
+      "tweet_ids": []
+    },
+    "419856159": {
+      "published": "2026-10-21T17:33:23Z",
+      "reason": "outage-backlog",
+      "status": "skipped",
+      "tag": "v0.1.2-nightly.20261021.3486",
+      "tweet_ids": []
+    },
+    "420164390": {
+      "published": "2026-10-21T23:51:13Z",
+      "reason": "outage-backlog",
+      "status": "skipped",
+      "tag": "v0.1.2-nightly.20261021.3499",
+      "tweet_ids": []
+    },
+    "420386873": {
+      "published": "2026-10-22T06:45:05Z",
+      "reason": "outage-backlog",
+      "status": "skipped",
+      "tag": "v0.1.2-nightly.20261022.3512",
+      "tweet_ids": []
+    },
+    "420731033": {
+      "published": "2026-10-22T13:03:18Z",
+      "reason": "outage-backlog",
+      "status": "skipped",
+      "tag": "v0.1.2-nightly.20261022.3526",
+      "tweet_ids": []
+    },
+    "421114786": {
+      "published": "2026-10-22T19:28:24Z",
+      "reason": "outage-backlog",
+      "status": "skipped",
+      "tag": "v0.1.2-nightly.20261022.3541",
+      "tweet_ids": []
+    },
+    "421369278": {
+      "published": "2026-10-23T01:44:38Z",
+      "reason": "outage-backlog",
+      "status": "skipped",
+      "tag": "v0.1.3-nightly.20261023.3553",
+      "tweet_ids": []
+    },
+    "421579363": {
+      "published": "2026-10-23T07:56:28Z",
+      "reason": "outage-backlog",
+      "status": "skipped",
+      "tag": "v0.1.3-nightly.20261023.3566",
+      "tweet_ids": []
+    },
+    "421948726": {
+      "published": "2026-10-23T14:35:28Z",
+      "reason": "outage-backlog",
+      "status": "skipped",
+      "tag": "v0.1.3-nightly.20261023.3579",
+      "tweet_ids": []
+    },
+    "422299909": {
+      "published": "2026-10-23T20:53:14Z",
+      "reason": "outage-backlog",
+      "status": "skipped",
+      "tag": "v0.1.3-nightly.20261023.3592",
+      "tweet_ids": []
+    },
+    "422492568": {
+      "published": "2026-10-24T03:33:12Z",
+      "reason": "outage-backlog",
+      "status": "skipped",
+      "tag": "v0.1.3-nightly.20261024.3604",
+      "tweet_ids": []
+    },
+    "422646603": {
+      "published": "2026-10-24T09:52:02Z",
+      "reason": "outage-backlog",
+      "status": "skipped",
+      "tag": "v0.1.3-nightly.20261024.3617",
+      "tweet_ids": []
+    },
+    "422845304": {
+      "published": "2026-10-24T16:27:49Z",
+      "reason": "outage-backlog",
+      "status": "skipped",
+      "tag": "v0.1.3-nightly.20261024.3630",
+      "tweet_ids": []
+    },
+    "423026686": {
+      "published": "2026-10-24T22:51:08Z",
+      "reason": "outage-backlog",
+      "status": "skipped",
+      "tag": "v0.1.3-nightly.20261024.3643",
+      "tweet_ids": []
+    },
+    "423167238": {
+      "published": "2026-10-25T05:28:16Z",
+      "reason": "outage-backlog",
+      "status": "skipped",
+      "tag": "v0.1.3-nightly.20261025.3655",
+      "tweet_ids": []
+    },
+    "423392942": {
+      "published": "2026-10-25T12:35:31Z",
+      "reason": "outage-backlog",
+      "status": "skipped",
+      "tag": "v0.1.3-nightly.20261025.3669",
+      "tweet_ids": []
+    },
+    "423596463": {
+      "published": "2026-10-25T18:54:44Z",
+      "reason": "outage-backlog",
+      "status": "skipped",
+      "tag": "v0.1.3-nightly.20261025.3682",
+      "tweet_ids": []
+    },
+    "423723311": {
+      "published": "2026-10-25T23:20:12Z",
+      "reason": "outage-backlog",
+      "status": "skipped",
+      "tag": "v0.1.3-nightly.20261025.3692",
+      "tweet_ids": []
+    },
+    "423855837": {
+      "published": "2026-10-26T04:21:52Z",
+      "reason": "outage-backlog",
+      "status": "skipped",
+      "tag": "v0.1.3-nightly.20261026.3707",
+      "tweet_ids": []
+    },
+    "423873074": {
+      "published": "2026-10-26T04:59:46Z",
+      "reason": "outage-backlog",
+      "status": "skipped",
+      "tag": "v0.1.3-nightly.20261026.3710",
+      "tweet_ids": []
+    },
+    "424060287": {
+      "published": "2026-10-26T09:35:17Z",
+      "reason": "outage-backlog",
+      "status": "skipped",
+      "tag": "v0.1.3-nightly.20261026.3717",
+      "tweet_ids": []
+    },
+    "424456427": {
+      "published": "2026-10-26T15:56:19Z",
+      "reason": "outage-backlog",
+      "status": "skipped",
+      "tag": "v0.1.3-nightly.20261026.3726",
+      "tweet_ids": []
+    },
+    "424841768": {
+      "published": "2026-10-26T22:33:44Z",
+      "reason": "outage-backlog",
+      "status": "skipped",
+      "tag": "v0.1.3-nightly.20261026.3740",
+      "tweet_ids": []
+    },
+    "424982951": {
+      "published": "2026-10-27T02:46:44Z",
+      "reason": "outage-backlog",
+      "status": "skipped",
+      "tag": "v0.1.3-nightly.20261027.3748",
+      "tweet_ids": []
+    },
+    "425050733": {
+      "published": "2026-10-27T04:59:52Z",
+      "reason": "outage-backlog",
+      "status": "skipped",
+      "tag": "v0.1.3-nightly.20261027.3754",
+      "tweet_ids": []
+    },
+    "425305593": {
+      "published": "2026-10-27T10:28:12Z",
+      "reason": "outage-backlog",
+      "status": "skipped",
+      "tag": "v0.1.4-nightly.20261027.3766",
+      "tweet_ids": []
+    },
+    "425335058": {
+      "published": "2026-10-27T10:57:31Z",
+      "reason": "outage-backlog",
+      "status": "skipped",
+      "tag": "v0.1.4-nightly.20261027.3770",
+      "tweet_ids": []
+    },
+    "425779712": {
+      "published": "2026-10-27T17:31:10Z",
+      "reason": "outage-backlog",
+      "status": "skipped",
+      "tag": "v0.1.4-nightly.20261027.3783",
+      "tweet_ids": []
+    }
+  },
+  "version": 1
+}
