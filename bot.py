@@ -339,10 +339,16 @@ def summarize(notes, env=None):
 
 
 def nightly_text(release):
-    """Return the text to post: a one-sentence summary, a blank line, then the notes."""
+    """Return the text to post: a title line, the summary, then the notes.
+
+    The title names the build, for example
+    `T3Code nightly v0.1.4-nightly.20261027.3796`. Blank lines separate the
+    parts. Without a summary the notes follow the title directly.
+    """
     notes = release_text(release)
     summary = summarize(notes)
-    return f'{summary}\n\n{notes}' if summary else notes
+    title = f'T3Code nightly {release["tag_name"]}'
+    return '\n\n'.join(part for part in (title, summary, notes) if part)
 
 
 def load_credentials(env=None):

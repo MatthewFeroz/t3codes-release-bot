@@ -37,6 +37,7 @@ from bot import (
     execute,
 )
 import cloud_auth
+from xurls import has_detectable_url
 
 # Keep tests off the real Claude API.
 os.environ.pop('ANTHROPIC_API_KEY', None)
@@ -304,7 +305,7 @@ class BotTests(unittest.TestCase):
             self.assertEqual(len(api.created), 1)
             self.assertIsNone(api.created[0][1])
             joined = api.created[0][0]
-            self.assertEqual(joined, release_text(item))
+            self.assertEqual(joined, nightly_text(item))
             self.assertGreater(weight(joined), SHORT_LIMIT)
             self.assertLessEqual(weight(joined), DEFAULT_LIMIT)
             self.assertIn('* fix\n', joined)
@@ -404,7 +405,10 @@ class BotTests(unittest.TestCase):
                 code = execute(store, github, dry_run=False, client=api, sleep=lambda _: None)
             self.assertEqual(code, 0)
             texts = [text for text, _ in api.created]
-            self.assertEqual(texts, ['## What\'s Changed\n* fix', 'later nightly'])
+            self.assertEqual(texts, [
+                'T3Code nightly v-nightly.newest\n\n## What\'s Changed\n* fix',
+                'T3Code nightly v-nightly.after\n\nlater nightly',
+            ])
             self.assertNotIn('http', texts[0])
             self.assertNotIn('old notes', texts)
             self.assertEqual(store.data['releases']['3']['status'], 'skipped')
@@ -618,7 +622,7 @@ class BotTests(unittest.TestCase):
                 )
             texts = [text for text, _ in api.created]
             self.assertGreater(len(texts), 1)
-            self.assertEqual(''.join(texts), release_text({'tag_name': 'v-nightly.5', 'body': body}))
+            self.assertEqual(''.join(texts), nightly_text({'tag_name': 'v-nightly.5', 'body': body}))
             self.assertTrue(all(weight(text) <= 40 for text in texts))
             self.assertTrue(all(text.endswith('\n') for text in texts[:-1]))
             self.assertIsNone(api.created[0][1])
@@ -652,7 +656,7 @@ class BotTests(unittest.TestCase):
             texts = [text for text, _ in api.created]
             self.assertGreater(len(texts), 1)
             self.assertTrue(all(weight(text) <= SHORT_LIMIT for text in texts))
-            self.assertEqual(''.join(texts), release_text(item))
+            self.assertEqual(''.join(texts), nightly_text(item))
             self.assertIsNone(api.created[0][1])
             self.assertEqual(api.created[1][1], '1')
             self.assertEqual(store.data['releases']['5']['status'], 'posted')
@@ -784,15 +788,26 @@ class SummaryTests(unittest.TestCase):
     notes = '## What\'s Changed\n* feat(server): link to another environment by @a in https://github.com/pingdotgg/t3code/pull/1\n'
     env = {'ANTHROPIC_API_KEY': 'test-key'}
 
-    def test_summary_goes_on_top_of_the_notes(self):
-        item = {'tag_name': 'v-nightly.1', 'body': self.notes}
+    def test_title_then_summary_then_notes(self):
+        item = {'tag_name': 'v0.1.4-nightly.20261027.3796', 'body': self.notes}
         with mock.patch('bot.summarize', return_value='Link T3 Code to another machine.'):
             self.assertEqual(
                 nightly_text(item),
+                'T3Code nightly v0.1.4-nightly.20261027.3796\n\n'
                 'Link T3 Code to another machine.\n\n## What\'s Changed\n* feat(server): link to another environment',
             )
         with mock.patch('bot.summarize', return_value=None):
-            self.assertEqual(nightly_text(item), release_text(item))
+            self.assertEqual(
+                nightly_text(item),
+                'T3Code nightly v0.1.4-nightly.20261027.3796\n\n' + release_text(item),
+            )
+
+    def test_title_keeps_the_version_and_has_no_link(self):
+        item = {'tag_name': 'v0.1.4-nightly.20261027.3796', 'body': self.notes}
+        with mock.patch('bot.summarize', return_value=None):
+            text = nightly_text(item)
+        self.assertTrue(text.startswith('T3Code nightly v0.1.4-nightly.20261027.3796\n'))
+        self.assertFalse(has_detectable_url(text))
 
     def test_summarize_sends_the_notes_and_returns_one_line(self):
         module = fake_anthropic('Link T3 Code to another\nmachine.')
