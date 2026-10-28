@@ -1,1 +1,1 @@
-cryptography>=46,<49
+# The poster uses the Python standard library only.
