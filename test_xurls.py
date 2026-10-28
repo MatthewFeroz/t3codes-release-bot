@@ -156,7 +156,7 @@ class UrlStripTests(unittest.TestCase):
 
     def test_thread_pieces_have_no_detectable_url(self):
         text = strip_links(NOTES + ('\n* another change by @b' * 40))
-        chunks = split_thread(text)
+        chunks = split_thread(text, limit=280)
         self.assertEqual(''.join(chunks), text)
         self.assertTrue(chunks)
         for chunk in chunks:

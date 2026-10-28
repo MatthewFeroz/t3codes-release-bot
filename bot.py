@@ -3,8 +3,10 @@
 Nightlies are GitHub releases whose tags contain ``-nightly.``. This
 repository cannot receive release events from that upstream repo, so the
 workflow polls the release list. Links are removed from the release notes
-before posting, so a post stays plain text. Notes longer than X's limit are
-split into a reply thread. The remaining words are not rewritten.
+before posting, so a post stays plain text. @t3codes has X Premium, so a
+nightly is one post of up to 25,000 weighted characters. Notes over that
+limit are split on line boundaries into as few replies as possible. The
+remaining words are not rewritten.
 
 OAuth 1.0a user credentials come from GitHub Actions secrets. Nothing here
 reads the retired encrypted vault.
@@ -38,7 +40,8 @@ from xurls import ensure_plain
 ROOT = Path(__file__).resolve().parent
 SOURCE_REPO = 'pingdotgg/t3code'
 ACCOUNT = 't3codes'
-LIMIT = 280
+DEFAULT_LIMIT = 25000
+SHORT_LIMIT = 280
 API = 'https://api.x.com/2'
 SECRET_NAMES = ('X_API_KEY', 'X_API_KEY_SECRET', 'X_ACCESS_TOKEN', 'X_ACCESS_TOKEN_SECRET')
 LOG = logging.getLogger('release-bot')
@@ -73,8 +76,9 @@ def redact(text, secret_values=()):
 
 
 class ApiError(RuntimeError):
-    def __init__(self, status, detail):
+    def __init__(self, status, detail, body=''):
         self.status = status
+        self.body = body or ''
         super().__init__(detail)
 
 
@@ -107,7 +111,11 @@ def http_json(method, url, headers, data=None, secret_values=(), timeout=45):
             raw = response.read().decode('utf-8')
     except urllib.error.HTTPError as exc:
         raw = exc.read().decode('utf-8', errors='replace')
-        raise ApiError(exc.code, 'X ' + describe_http_error(exc.code, raw, secret_values)) from None
+        raise ApiError(
+            exc.code,
+            'X ' + describe_http_error(exc.code, raw, secret_values),
+            body=redact(raw or '', secret_values),
+        ) from None
     except (urllib.error.URLError, TimeoutError, OSError) as exc:
         reason = redact(str(getattr(exc, 'reason', exc)), secret_values)
         raise RuntimeError(
@@ -166,6 +174,32 @@ def _max_prefix(text, limit):
     return lo
 
 
+def post_limit(env=None):
+    """Weighted-character cap for one post. Defaults to the Premium limit."""
+    env = os.environ if env is None else env
+    raw = (env.get('X_MAX_POST_CHARS') or '').strip()
+    if not raw:
+        return DEFAULT_LIMIT
+    if not raw.isdigit() or int(raw) < 1:
+        raise RuntimeError(f'X_MAX_POST_CHARS must be a positive integer, got {raw!r}.')
+    return int(raw)
+
+
+_LONG_POST_REJECTION = re.compile(
+    r'too long|bit shorter|character limit|maximum length|exceeds .{0,80}limit|'
+    r'longer than|long[- ](?:post|tweet|form)|premium|'
+    r'"code"\s*:\s*186\b',
+    re.IGNORECASE,
+)
+
+
+def long_post_rejected(exc):
+    """True when X refused a post because the account cannot send long text."""
+    if not isinstance(exc, ApiError) or exc.status not in (400, 403):
+        return False
+    return _LONG_POST_REJECTION.search(f'{exc}\n{exc.body}') is not None
+
+
 def _prefer_boundary(text, cut):
     window = text[:cut]
     for separator in ('\n', ' '):
@@ -175,13 +209,16 @@ def _prefer_boundary(text, cut):
     return cut
 
 
-def split_thread(text, limit=LIMIT):
-    """Split text into posts of at most ``limit`` weighted characters.
+def split_thread(text, limit=None):
+    """Split text into as few posts as possible, each within ``limit``.
 
-    The pieces join back to ``text``. The split prefers a newline, then a
-    space, and only then breaks a long line. It does not rewrite or drop
-    characters.
+    The pieces join back to ``text``. A newline is the preferred break, so
+    notes over the limit become whole lines packed into the fewest replies.
+    A line longer than the limit is split on a space, then a hard break.
+    Nothing is rewritten or dropped.
     """
+    if limit is None:
+        limit = post_limit()
     if text is None or not str(text).strip():
         raise RuntimeError('Refusing to post empty text. The nightly notes were not truncated.')
     text = str(text)
@@ -287,10 +324,11 @@ class XClient:
 
     def create(self, text, parent):
         text = ensure_plain(text)
+        limit = post_limit()
         size = weight(text)
-        if size > LIMIT:
+        if size > limit:
             raise RuntimeError(
-                f'Refusing to post: text is {size} weighted characters, over the {LIMIT} limit. '
+                f'Refusing to post: text is {size} weighted characters, over the {limit} limit. '
                 'It was not truncated.'
             )
         if not str(text).strip():
@@ -538,6 +576,23 @@ def prepare_state(store, releases, dry_run):
     return store
 
 
+def _fall_back_to_short_thread(row, chunks, exc):
+    body = getattr(exc, 'body', '') or ''
+    LOG.error(
+        'X rejected %s as a long post (HTTP %s). Falling back to a %s-character thread. Full error body: %s',
+        row.get('tag'),
+        exc.status,
+        SHORT_LIMIT,
+        body or str(exc),
+    )
+    full = ''.join(chunks)
+    row['chunks'] = split_thread(full, limit=SHORT_LIMIT)
+    row['tweet_ids'] = []
+    row['attempted_index'] = None
+    row['attempted_at'] = None
+    row['long_post_fallback'] = True
+
+
 def post_release(store, client, user_id, release, sleep):
     release_id = str(release['id'])
     row = store.data['releases'].get(release_id)
@@ -559,57 +614,75 @@ def post_release(store, client, user_id, release, sleep):
         store.save()
     if not row.get('chunks'):
         raise RuntimeError(f'{row.get("tag")}: in-progress post is missing its text. Refusing to send it again blindly.')
-    ids = [str(tweet_id) for tweet_id in row.get('tweet_ids') or []]
-    chunks = list(row['chunks'])
-    row['chunks'] = chunks
-    for index, chunk in enumerate(chunks):
-        if index < len(ids):
-            continue
-        plain = ensure_plain(chunk)
-        if plain != chunk:
-            chunks[index] = plain
-            store.save()
-        chunk = plain
-        if not chunk.strip():
-            continue
-        size = weight(chunk)
-        if size > LIMIT:
-            raise RuntimeError(
-                f'Refusing to post {row["tag"]} part {index + 1}: it is {size} weighted characters '
-                f'(limit {LIMIT}). The notes were not truncated.'
-            )
-        parent = ids[-1] if ids else None
-        tweet_id = None
-        if row.get('attempted_index') == index:
-            tweet_id = client.find_post(user_id, chunk, parent)
-        if tweet_id is None:
-            row['attempted_index'] = index
-            row['attempted_at'] = now()
-            store.save()
-            try:
-                tweet_id = client.create(chunk, parent)
-            except ApiError as exc:
-                # A duplicate means this text is already on the account. Record that
-                # post instead of failing closed on every later nightly.
-                if 'duplicate' not in str(exc).lower():
-                    raise
+    while True:
+        ids = [str(tweet_id) for tweet_id in row.get('tweet_ids') or []]
+        chunks = list(row['chunks'])
+        row['chunks'] = chunks
+        active_limit = SHORT_LIMIT if row.get('long_post_fallback') else post_limit()
+        restarted = False
+        for index, chunk in enumerate(chunks):
+            if index < len(ids):
+                continue
+            plain = ensure_plain(chunk)
+            if plain != chunk:
+                chunks[index] = plain
+                store.save()
+            chunk = plain
+            if not chunk.strip():
+                continue
+            size = weight(chunk)
+            if size > active_limit:
+                raise RuntimeError(
+                    f'Refusing to post {row["tag"]} part {index + 1}: it is {size} weighted characters '
+                    f'(limit {active_limit}). The notes were not truncated.'
+                )
+            parent = ids[-1] if ids else None
+            tweet_id = None
+            if row.get('attempted_index') == index:
                 tweet_id = client.find_post(user_id, chunk, parent)
-                if not tweet_id:
-                    raise RuntimeError(
-                        f'{row["tag"]} part {index + 1} was rejected as a duplicate, but the existing '
-                        f'post was not found on @{ACCOUNT}. Not sending another copy. X said: {exc}'
-                    ) from None
-        ids.append(str(tweet_id))
-        row['tweet_ids'] = ids
-        row['attempted_index'] = None
-        row['attempted_at'] = None
-        store.save()
-        url = f'https://x.com/{ACCOUNT}/status/{tweet_id}'
-        print(f'POST_URL={url}', flush=True)
-        LOG.info('Posted %s %s/%s %s', row['tag'], index + 1, len(chunks), url)
-        write_summary(f'- {row["tag"]} {index + 1}/{len(chunks)}: {url}\n')
-        if index + 1 < len(chunks):
-            sleep(2)
+            if tweet_id is None:
+                row['attempted_index'] = index
+                row['attempted_at'] = now()
+                store.save()
+                try:
+                    tweet_id = client.create(chunk, parent)
+                except ApiError as exc:
+                    # Nothing has been sent yet, and X says this account cannot
+                    # post long text. Re-split at 280 and send that thread.
+                    # A thread that already has posts is left in progress.
+                    if (
+                        not ids
+                        and not row.get('long_post_fallback')
+                        and size > SHORT_LIMIT
+                        and long_post_rejected(exc)
+                    ):
+                        _fall_back_to_short_thread(row, chunks, exc)
+                        store.save()
+                        restarted = True
+                        break
+                    # A duplicate means this text is already on the account. Record that
+                    # post instead of failing closed on every later nightly.
+                    if 'duplicate' not in str(exc).lower():
+                        raise
+                    tweet_id = client.find_post(user_id, chunk, parent)
+                    if not tweet_id:
+                        raise RuntimeError(
+                            f'{row["tag"]} part {index + 1} was rejected as a duplicate, but the existing '
+                            f'post was not found on @{ACCOUNT}. Not sending another copy. X said: {exc}'
+                        ) from None
+            ids.append(str(tweet_id))
+            row['tweet_ids'] = ids
+            row['attempted_index'] = None
+            row['attempted_at'] = None
+            store.save()
+            url = f'https://x.com/{ACCOUNT}/status/{tweet_id}'
+            print(f'POST_URL={url}', flush=True)
+            LOG.info('Posted %s %s/%s %s', row['tag'], index + 1, len(chunks), url)
+            write_summary(f'- {row["tag"]} {index + 1}/{len(chunks)}: {url}\n')
+            if index + 1 < len(chunks):
+                sleep(2)
+        if not restarted:
+            break
     if not ids:
         raise RuntimeError(f'{row.get("tag")}: link removal left no post text. Nothing was posted.')
     row['status'] = 'posted'
@@ -629,7 +702,7 @@ def render_dry_run(pending):
         text = release_text(release)
         chunks = split_thread(text)
         lines.append(
-            f'{release["tag_name"]}: {len(chunks)} post(s), {weight(text)} weighted characters.'
+            f'{release["tag_name"]}: {len(chunks)} post(s), {weight(text)} weighted characters (limit {post_limit()}).'
         )
         for index, chunk in enumerate(chunks, start=1):
             lines.append(f'--- post {index}/{len(chunks)} ({weight(chunk)} weighted characters) ---')

@@ -1,5 +1,8 @@
+import io
 import json
+import os
 import sqlite3
+import urllib.error
 from pathlib import Path
 import tempfile
 import unittest
@@ -7,14 +10,19 @@ from unittest import mock
 
 from bot import (
     ACCOUNT,
+    DEFAULT_LIMIT,
+    SHORT_LIMIT,
     ApiError,
     Store,
     XClient,
     describe_http_error,
+    http_json,
     is_nightly,
     is_pending,
     load_credentials,
+    long_post_rejected,
     oauth_signature,
+    post_limit,
     redact,
     release_text,
     render_dry_run,
@@ -52,7 +60,7 @@ class FakeX:
         return self.found.get((text, parent))
 
     def create(self, text, parent):
-        if weight(text) > 280:
+        if weight(text) > DEFAULT_LIMIT:
             raise RuntimeError('over limit')
         self.created.append((text, parent))
         return str(len(self.created))
@@ -108,9 +116,9 @@ class BotTests(unittest.TestCase):
         self.assertEqual(split_thread('hello world', limit=6), ['hello ', 'world'])
         self.assertEqual(split_thread('helloworld', limit=4), ['hell', 'owor', 'ld'])
         notes = '## What\'s Changed\n* fix by @a in https://github.com/pingdotgg/t3code/pull/1\n' + ('word ' * 80)
-        chunks = split_thread(notes.rstrip())
+        chunks = split_thread(notes.rstrip(), limit=SHORT_LIMIT)
         self.assertEqual(''.join(chunks), notes.rstrip())
-        self.assertTrue(all(weight(chunk) <= 280 and chunk.strip() for chunk in chunks))
+        self.assertTrue(all(weight(chunk) <= SHORT_LIMIT and chunk.strip() for chunk in chunks))
         self.assertGreater(len(chunks), 1)
         self.assertIn('@a', ''.join(chunks))
         self.assertIn('https://github.com/pingdotgg/t3code/pull/1', ''.join(chunks))
@@ -118,10 +126,34 @@ class BotTests(unittest.TestCase):
     def test_cjk_weight_and_no_truncation(self):
         self.assertEqual(weight('a' * 280), 280)
         self.assertEqual(weight('\u754c'), 2)
-        chunks = split_thread('\u754c' * 141)
+        chunks = split_thread('\u754c' * 141, limit=SHORT_LIMIT)
         self.assertEqual(''.join(chunks), '\u754c' * 141)
-        self.assertTrue(all(weight(chunk) <= 280 for chunk in chunks))
+        self.assertTrue(all(weight(chunk) <= SHORT_LIMIT for chunk in chunks))
         self.assertGreater(len(chunks), 1)
+
+    def test_premium_limit_posts_notes_as_one_piece_until_25k(self):
+        self.assertEqual(post_limit({}), DEFAULT_LIMIT)
+        self.assertEqual(post_limit({'X_MAX_POST_CHARS': ''}), DEFAULT_LIMIT)
+        notes = 'line of release notes\n' * 40
+        self.assertGreater(weight(notes), SHORT_LIMIT)
+        self.assertLess(weight(notes), DEFAULT_LIMIT)
+        with mock.patch.dict(os.environ, {'X_MAX_POST_CHARS': ''}):
+            self.assertEqual(split_thread(notes), [notes])
+        with self.assertRaisesRegex(RuntimeError, 'positive integer'):
+            post_limit({'X_MAX_POST_CHARS': 'nope'})
+
+    def test_notes_over_25k_split_on_lines_into_as_few_posts_as_possible(self):
+        line = 'fix by @a ' + ('w' * 80) + '\n'
+        text = line * 300
+        self.assertGreater(weight(text.strip()), DEFAULT_LIMIT)
+        chunks = split_thread(text.strip(), limit=DEFAULT_LIMIT)
+        self.assertEqual(''.join(chunks), text.strip())
+        self.assertEqual(len(chunks), 2)
+        self.assertTrue(chunks[0].endswith('\n'))
+        self.assertLessEqual(weight(chunks[0]), DEFAULT_LIMIT)
+        self.assertLessEqual(weight(chunks[1]), DEFAULT_LIMIT)
+        nxt = chunks[1].split('\n', 1)[0]
+        self.assertGreater(weight(chunks[0] + nxt), DEFAULT_LIMIT)
 
     def test_release_text_keeps_notes_and_drops_links(self):
         body = '## What\'s Changed\n* fix by @a in https://github.com/pingdotgg/t3code/pull/1\n\n'
@@ -216,16 +248,17 @@ class BotTests(unittest.TestCase):
             body = '## What\'s Changed\n* fix by @a in https://github.com/pingdotgg/t3code/pull/1\n' + ('change ' * 70)
             item = release(5, 'v-nightly.5', '2026-10-05T00:00:00Z', body)
             api = FakeX()
-            post_release(store, api, '99', item, sleep=lambda _: None)
-            self.assertGreater(len(api.created), 1)
+            with mock.patch.dict(os.environ, {'X_MAX_POST_CHARS': ''}):
+                post_release(store, api, '99', item, sleep=lambda _: None)
+            self.assertEqual(len(api.created), 1)
             self.assertIsNone(api.created[0][1])
-            self.assertEqual(api.created[1][1], '1')
-            joined = ''.join(text for text, _ in api.created)
+            joined = api.created[0][0]
             self.assertEqual(joined, release_text(item))
+            self.assertGreater(weight(joined), SHORT_LIMIT)
+            self.assertLessEqual(weight(joined), DEFAULT_LIMIT)
             self.assertIn('* fix by @a', joined)
             self.assertNotIn('http', joined)
             self.assertNotIn('github.com', joined)
-            self.assertTrue(all(weight(text) <= 280 for text, _ in api.created))
             self.assertEqual(store.data['releases']['5']['status'], 'posted')
             post_release_again = len(api.created)
             self.assertFalse(is_pending(item, store.data))
@@ -339,9 +372,16 @@ class BotTests(unittest.TestCase):
             'X_ACCESS_TOKEN': 'access-token-value',
             'X_ACCESS_TOKEN_SECRET': 'access-secret-value',
         }, http=http)
-        with self.assertRaisesRegex(RuntimeError, 'not truncated'):
-            client.create('a' * 281, None)
+        with mock.patch.dict(os.environ, {'X_MAX_POST_CHARS': ''}):
+            with self.assertRaisesRegex(RuntimeError, 'not truncated'):
+                client.create('a' * (DEFAULT_LIMIT + 1), None)
         self.assertEqual(calls, [])
+        with mock.patch.dict(os.environ, {'X_MAX_POST_CHARS': '280'}):
+            with self.assertRaisesRegex(RuntimeError, 'not truncated'):
+                client.create('a' * 281, None)
+            self.assertEqual(calls, [])
+            self.assertEqual(client.create('a' * 280, None), '1')
+        self.assertEqual(len(calls), 1)
 
     def test_verify_refuses_unexpected_account(self):
         def http(method, url, headers, data=None, secret_values=(), timeout=45):
@@ -509,6 +549,131 @@ class BotTests(unittest.TestCase):
     def test_retired_vault_cannot_mint_a_token(self):
         with self.assertRaisesRegex(RuntimeError, 'OAuth 1.0a'):
             cloud_auth.access_token()
+
+    def test_configurable_limit_splits_a_nightly_on_lines(self):
+        line = 'ship the nightly fix\n'
+        body = line * 6
+        with tempfile.TemporaryDirectory() as temporary:
+            store = Store(Path(temporary) / 'posted.json')
+            store.data = {'outage_settled': True, 'releases': {}}
+            api = FakeX()
+            with mock.patch.dict(os.environ, {'X_MAX_POST_CHARS': '40'}):
+                post_release(
+                    store, api, '99',
+                    release(5, 'v-nightly.5', '2026-10-05T00:00:00Z', body),
+                    sleep=lambda _: None,
+                )
+            texts = [text for text, _ in api.created]
+            self.assertGreater(len(texts), 1)
+            self.assertEqual(''.join(texts), release_text({'tag_name': 'v-nightly.5', 'body': body}))
+            self.assertTrue(all(weight(text) <= 40 for text in texts))
+            self.assertTrue(all(text.endswith('\n') for text in texts[:-1]))
+            self.assertIsNone(api.created[0][1])
+            self.assertEqual(api.created[1][1], '1')
+
+    def test_long_post_rejection_falls_back_to_280_thread(self):
+        full_body = '{"detail":"You are not permitted to create a long Post.","tail":"' + ('Q' * 1200) + '"}'
+
+        class RejectLong(FakeX):
+            def create(self, text, parent):
+                if weight(text) > SHORT_LIMIT:
+                    raise ApiError(
+                        403,
+                        'X HTTP 403: Forbidden; You are not permitted to create a long Post.',
+                        body=full_body,
+                    )
+                return super().create(text, parent)
+
+        notes = '* change by @a\n' * 40
+        with tempfile.TemporaryDirectory() as temporary:
+            store = Store(Path(temporary) / 'posted.json')
+            store.data = {'outage_settled': True, 'releases': {}}
+            api = RejectLong()
+            item = release(5, 'v-nightly.5', '2026-10-05T00:00:00Z', notes)
+            with mock.patch.dict(os.environ, {'X_MAX_POST_CHARS': ''}):
+                with self.assertLogs('release-bot', level='ERROR') as logs:
+                    post_release(store, api, '99', item, sleep=lambda _: None)
+            logged = '\n'.join(logs.output)
+            self.assertIn(full_body, logged)
+            self.assertIn('HTTP 403', logged)
+            texts = [text for text, _ in api.created]
+            self.assertGreater(len(texts), 1)
+            self.assertTrue(all(weight(text) <= SHORT_LIMIT for text in texts))
+            self.assertEqual(''.join(texts), release_text(item))
+            self.assertIsNone(api.created[0][1])
+            self.assertEqual(api.created[1][1], '1')
+            self.assertEqual(store.data['releases']['5']['status'], 'posted')
+            self.assertTrue(store.data['releases']['5'].get('long_post_fallback'))
+            self.assertGreater(len(store.data['releases']['5']['tweet_ids']), 1)
+
+    def test_long_post_rejection_keeps_a_partial_thread(self):
+        class RejectLong(FakeX):
+            def create(self, text, parent):
+                raise ApiError(400, 'X HTTP 400: Invalid Request; Text is too long.', body='{"detail":"Text is too long."}')
+
+        with tempfile.TemporaryDirectory() as temporary:
+            store = Store(Path(temporary) / 'posted.json')
+            chunks = ['a' * 400, 'b' * 400]
+            store.data = {'outage_settled': True, 'releases': {
+                '5': {
+                    'tag': 'v-nightly.5',
+                    'published': '2026-10-05T00:00:00Z',
+                    'status': 'in_progress',
+                    'chunks': list(chunks),
+                    'tweet_ids': ['10'],
+                    'attempted_index': None,
+                },
+            }}
+            api = RejectLong()
+            with self.assertRaises(ApiError):
+                post_release(store, api, '99', release(5, 'v-nightly.5', '2026-10-05T00:00:00Z'), sleep=lambda _: None)
+            row = store.data['releases']['5']
+            self.assertEqual(row['tweet_ids'], ['10'])
+            self.assertEqual(row['chunks'], chunks)
+            self.assertEqual(row['status'], 'in_progress')
+            self.assertFalse(row.get('long_post_fallback'))
+            self.assertEqual(api.created, [])
+            self.assertEqual(row['attempted_index'], 1)
+
+    def test_non_length_error_does_not_fall_back(self):
+        self.assertFalse(long_post_rejected(ApiError(403, 'X HTTP 403: Forbidden; Your credentials do not allow access')))
+        self.assertFalse(long_post_rejected(ApiError(500, 'X HTTP 500: Text is too long.')))
+        self.assertTrue(long_post_rejected(ApiError(400, 'X HTTP 400: Tweet needs to be a bit shorter.')))
+        self.assertTrue(long_post_rejected(ApiError(403, 'X HTTP 403: Forbidden', body='{"errors":[{"code":186,"message":"nope"}]}')))
+
+        class AuthFail(FakeX):
+            def create(self, text, parent):
+                raise ApiError(403, 'X HTTP 403: Forbidden; Your credentials do not allow access to this resource')
+
+        with tempfile.TemporaryDirectory() as temporary:
+            store = Store(Path(temporary) / 'posted.json')
+            store.data = {'outage_settled': True, 'releases': {}}
+            notes = '* change by @a\n' * 40
+            with mock.patch.dict(os.environ, {'X_MAX_POST_CHARS': ''}):
+                with self.assertRaisesRegex(ApiError, 'credentials do not allow'):
+                    post_release(
+                        store, AuthFail(), '99',
+                        release(5, 'v-nightly.5', '2026-10-05T00:00:00Z', notes),
+                        sleep=lambda _: None,
+                    )
+            row = store.data['releases']['5']
+            self.assertEqual(row['status'], 'in_progress')
+            self.assertEqual(row['tweet_ids'], [])
+            self.assertFalse(row.get('long_post_fallback'))
+            self.assertEqual(len(row['chunks']), 1)
+            self.assertGreater(weight(row['chunks'][0]), SHORT_LIMIT)
+
+    def test_http_error_keeps_the_full_body(self):
+        raw = json.dumps({'detail': 'Text is too long.', 'pad': 'Q' * 2000}).encode()
+        error = urllib.error.HTTPError(
+            'https://api.x.com/2/tweets', 403, 'Forbidden', {}, io.BytesIO(raw),
+        )
+        with mock.patch('urllib.request.urlopen', side_effect=error):
+            with self.assertRaises(ApiError) as caught:
+                http_json('POST', 'https://api.x.com/2/tweets', {})
+        self.assertIn('Text is too long', str(caught.exception))
+        self.assertIn('Q' * 2000, caught.exception.body)
+        self.assertEqual(caught.exception.status, 403)
 
     def _legacy_db(self, path):
         connection = sqlite3.connect(path)
