@@ -269,6 +269,7 @@ _HANDLE = r'@(?:app/)?[A-Za-z0-9_-]+(?:\[bot\])?'
 _CREDIT = re.compile(rf'[ \t]+by[ \t]+{_HANDLE}(?:(?:[ \t]*,[ \t]*|[ \t]+and[ \t]+){_HANDLE})*[ \t]*$', re.M)
 _FIRST_CONTRIBUTION = re.compile(rf'^[ \t]*[*+-][ \t]+{_HANDLE} made their first contribution\b.*(?:\n|$)', re.M)
 _EMPTY_CONTRIBUTORS = re.compile(r'^#+[ \t]*New Contributors[ \t]*(?:\n[ \t]*)*(?=^#|\Z)', re.M | re.I)
+_WHATS_CHANGED = re.compile(r"^#+[ \t]*What['\u2019]s Changed[ \t]*(?:\n|$)", re.M | re.I)
 
 
 def post_text(text):
@@ -276,11 +277,14 @@ def post_text(text):
 
     X rejects a post with too many @mentions, and a nightly credits dozens of
     authors. `* fix by @a in <PR link>` becomes `* fix`, and the New
-    Contributors section is dropped. Other @mentions in the notes stay.
+    Contributors section is dropped. Other @mentions in the notes stay. The
+    `## What's Changed` heading is dropped too, since the title line already
+    says what the post is.
     """
     text = ensure_plain(text)
     text = _CREDIT.sub('', text)
     text = _FIRST_CONTRIBUTION.sub('', text)
+    text = _WHATS_CHANGED.sub('', text)
     return _EMPTY_CONTRIBUTORS.sub('', text)
 
 
@@ -339,10 +343,16 @@ def summarize(notes, env=None):
 
 
 def nightly_text(release):
-    """Return the text to post: a one-sentence summary, a blank line, then the notes."""
+    """Return the text to post: a title line, the summary, then the notes.
+
+    The title names the build, for example
+    `T3Code nightly v0.1.4-nightly.20261027.3796`. Blank lines separate the
+    parts. Without a summary the notes follow the title directly.
+    """
     notes = release_text(release)
     summary = summarize(notes)
-    return f'{summary}\n\n{notes}' if summary else notes
+    title = f'T3Code nightly {release["tag_name"]}'
+    return '\n\n'.join(part for part in (title, summary, notes) if part)
 
 
 def load_credentials(env=None):

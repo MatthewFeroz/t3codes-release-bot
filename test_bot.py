@@ -37,6 +37,7 @@ from bot import (
     execute,
 )
 import cloud_auth
+from xurls import has_detectable_url
 
 # Keep tests off the real Claude API.
 os.environ.pop('ANTHROPIC_API_KEY', None)
@@ -165,7 +166,7 @@ class BotTests(unittest.TestCase):
     def test_release_text_keeps_notes_and_drops_links(self):
         body = '## What\'s Changed\n* fix by @a in https://github.com/pingdotgg/t3code/pull/1\n\n'
         text = release_text({'tag_name': 'v1-nightly.1', 'body': body})
-        self.assertEqual(text, '## What\'s Changed\n* fix')
+        self.assertEqual(text, '* fix')
         self.assertNotIn('@a', text)
         self.assertNotIn('http', text)
         self.assertNotIn('github.com', text)
@@ -190,13 +191,16 @@ class BotTests(unittest.TestCase):
         )
         text = release_text({'tag_name': 'v1-nightly.1', 'body': body})
         self.assertEqual(text, (
-            '## What\'s Changed\n'
             '* fix\n'
             '* pair work\n'
             '* bump\n'
             '* @-mention a machine\n'
             '* thanks to @e for the report'
         ))
+
+    def test_release_text_drops_whats_changed_heading_only(self):
+        body = '## What\u2019s Changed\n* fix\n\n### Mobile\n* sheet fix\n'
+        self.assertEqual(release_text({'tag_name': 'v1-nightly.1', 'body': body}), '* fix\n\n### Mobile\n* sheet fix')
 
     def test_stuck_post_drops_credits_before_retrying(self):
         # A nightly saved with `by @a` credits before this change still posts without them.
@@ -215,7 +219,7 @@ class BotTests(unittest.TestCase):
             }}
             api = FakeX()
             post_release(store, api, '99', release(5, 'v-nightly.5', '2026-10-05T00:00:00Z'), sleep=lambda _: None)
-            self.assertEqual(api.created, [('## What\'s Changed\n* fix\n* other', None)])
+            self.assertEqual(api.created, [('* fix\n* other', None)])
             self.assertEqual(store.data['releases']['5']['status'], 'posted')
 
     def test_http_error_includes_x_message_and_redacts_secrets(self):
@@ -304,7 +308,7 @@ class BotTests(unittest.TestCase):
             self.assertEqual(len(api.created), 1)
             self.assertIsNone(api.created[0][1])
             joined = api.created[0][0]
-            self.assertEqual(joined, release_text(item))
+            self.assertEqual(joined, nightly_text(item))
             self.assertGreater(weight(joined), SHORT_LIMIT)
             self.assertLessEqual(weight(joined), DEFAULT_LIMIT)
             self.assertIn('* fix\n', joined)
@@ -404,7 +408,10 @@ class BotTests(unittest.TestCase):
                 code = execute(store, github, dry_run=False, client=api, sleep=lambda _: None)
             self.assertEqual(code, 0)
             texts = [text for text, _ in api.created]
-            self.assertEqual(texts, ['## What\'s Changed\n* fix', 'later nightly'])
+            self.assertEqual(texts, [
+                'T3Code nightly v-nightly.newest\n\n* fix',
+                'T3Code nightly v-nightly.after\n\nlater nightly',
+            ])
             self.assertNotIn('http', texts[0])
             self.assertNotIn('old notes', texts)
             self.assertEqual(store.data['releases']['3']['status'], 'skipped')
@@ -618,7 +625,7 @@ class BotTests(unittest.TestCase):
                 )
             texts = [text for text, _ in api.created]
             self.assertGreater(len(texts), 1)
-            self.assertEqual(''.join(texts), release_text({'tag_name': 'v-nightly.5', 'body': body}))
+            self.assertEqual(''.join(texts), nightly_text({'tag_name': 'v-nightly.5', 'body': body}))
             self.assertTrue(all(weight(text) <= 40 for text in texts))
             self.assertTrue(all(text.endswith('\n') for text in texts[:-1]))
             self.assertIsNone(api.created[0][1])
@@ -652,7 +659,7 @@ class BotTests(unittest.TestCase):
             texts = [text for text, _ in api.created]
             self.assertGreater(len(texts), 1)
             self.assertTrue(all(weight(text) <= SHORT_LIMIT for text in texts))
-            self.assertEqual(''.join(texts), release_text(item))
+            self.assertEqual(''.join(texts), nightly_text(item))
             self.assertIsNone(api.created[0][1])
             self.assertEqual(api.created[1][1], '1')
             self.assertEqual(store.data['releases']['5']['status'], 'posted')
@@ -784,15 +791,26 @@ class SummaryTests(unittest.TestCase):
     notes = '## What\'s Changed\n* feat(server): link to another environment by @a in https://github.com/pingdotgg/t3code/pull/1\n'
     env = {'ANTHROPIC_API_KEY': 'test-key'}
 
-    def test_summary_goes_on_top_of_the_notes(self):
-        item = {'tag_name': 'v-nightly.1', 'body': self.notes}
+    def test_title_then_summary_then_notes(self):
+        item = {'tag_name': 'v0.1.4-nightly.20261027.3796', 'body': self.notes}
         with mock.patch('bot.summarize', return_value='Link T3 Code to another machine.'):
             self.assertEqual(
                 nightly_text(item),
-                'Link T3 Code to another machine.\n\n## What\'s Changed\n* feat(server): link to another environment',
+                'T3Code nightly v0.1.4-nightly.20261027.3796\n\n'
+                'Link T3 Code to another machine.\n\n* feat(server): link to another environment',
             )
         with mock.patch('bot.summarize', return_value=None):
-            self.assertEqual(nightly_text(item), release_text(item))
+            self.assertEqual(
+                nightly_text(item),
+                'T3Code nightly v0.1.4-nightly.20261027.3796\n\n' + release_text(item),
+            )
+
+    def test_title_keeps_the_version_and_has_no_link(self):
+        item = {'tag_name': 'v0.1.4-nightly.20261027.3796', 'body': self.notes}
+        with mock.patch('bot.summarize', return_value=None):
+            text = nightly_text(item)
+        self.assertTrue(text.startswith('T3Code nightly v0.1.4-nightly.20261027.3796\n'))
+        self.assertFalse(has_detectable_url(text))
 
     def test_summarize_sends_the_notes_and_returns_one_line(self):
         module = fake_anthropic('Link T3 Code to another\nmachine.')
