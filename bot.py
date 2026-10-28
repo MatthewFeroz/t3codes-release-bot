@@ -269,6 +269,7 @@ _HANDLE = r'@(?:app/)?[A-Za-z0-9_-]+(?:\[bot\])?'
 _CREDIT = re.compile(rf'[ \t]+by[ \t]+{_HANDLE}(?:(?:[ \t]*,[ \t]*|[ \t]+and[ \t]+){_HANDLE})*[ \t]*$', re.M)
 _FIRST_CONTRIBUTION = re.compile(rf'^[ \t]*[*+-][ \t]+{_HANDLE} made their first contribution\b.*(?:\n|$)', re.M)
 _EMPTY_CONTRIBUTORS = re.compile(r'^#+[ \t]*New Contributors[ \t]*(?:\n[ \t]*)*(?=^#|\Z)', re.M | re.I)
+_WHATS_CHANGED = re.compile(r"^#+[ \t]*What['\u2019]s Changed[ \t]*(?:\n|$)", re.M | re.I)
 
 
 def post_text(text):
@@ -276,11 +277,14 @@ def post_text(text):
 
     X rejects a post with too many @mentions, and a nightly credits dozens of
     authors. `* fix by @a in <PR link>` becomes `* fix`, and the New
-    Contributors section is dropped. Other @mentions in the notes stay.
+    Contributors section is dropped. Other @mentions in the notes stay. The
+    `## What's Changed` heading is dropped too, since the title line already
+    says what the post is.
     """
     text = ensure_plain(text)
     text = _CREDIT.sub('', text)
     text = _FIRST_CONTRIBUTION.sub('', text)
+    text = _WHATS_CHANGED.sub('', text)
     return _EMPTY_CONTRIBUTORS.sub('', text)
 
 

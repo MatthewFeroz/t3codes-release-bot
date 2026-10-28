@@ -166,7 +166,7 @@ class BotTests(unittest.TestCase):
     def test_release_text_keeps_notes_and_drops_links(self):
         body = '## What\'s Changed\n* fix by @a in https://github.com/pingdotgg/t3code/pull/1\n\n'
         text = release_text({'tag_name': 'v1-nightly.1', 'body': body})
-        self.assertEqual(text, '## What\'s Changed\n* fix')
+        self.assertEqual(text, '* fix')
         self.assertNotIn('@a', text)
         self.assertNotIn('http', text)
         self.assertNotIn('github.com', text)
@@ -191,13 +191,16 @@ class BotTests(unittest.TestCase):
         )
         text = release_text({'tag_name': 'v1-nightly.1', 'body': body})
         self.assertEqual(text, (
-            '## What\'s Changed\n'
             '* fix\n'
             '* pair work\n'
             '* bump\n'
             '* @-mention a machine\n'
             '* thanks to @e for the report'
         ))
+
+    def test_release_text_drops_whats_changed_heading_only(self):
+        body = '## What\u2019s Changed\n* fix\n\n### Mobile\n* sheet fix\n'
+        self.assertEqual(release_text({'tag_name': 'v1-nightly.1', 'body': body}), '* fix\n\n### Mobile\n* sheet fix')
 
     def test_stuck_post_drops_credits_before_retrying(self):
         # A nightly saved with `by @a` credits before this change still posts without them.
@@ -216,7 +219,7 @@ class BotTests(unittest.TestCase):
             }}
             api = FakeX()
             post_release(store, api, '99', release(5, 'v-nightly.5', '2026-10-05T00:00:00Z'), sleep=lambda _: None)
-            self.assertEqual(api.created, [('## What\'s Changed\n* fix\n* other', None)])
+            self.assertEqual(api.created, [('* fix\n* other', None)])
             self.assertEqual(store.data['releases']['5']['status'], 'posted')
 
     def test_http_error_includes_x_message_and_redacts_secrets(self):
@@ -406,7 +409,7 @@ class BotTests(unittest.TestCase):
             self.assertEqual(code, 0)
             texts = [text for text, _ in api.created]
             self.assertEqual(texts, [
-                'T3Code nightly v-nightly.newest\n\n## What\'s Changed\n* fix',
+                'T3Code nightly v-nightly.newest\n\n* fix',
                 'T3Code nightly v-nightly.after\n\nlater nightly',
             ])
             self.assertNotIn('http', texts[0])
@@ -794,7 +797,7 @@ class SummaryTests(unittest.TestCase):
             self.assertEqual(
                 nightly_text(item),
                 'T3Code nightly v0.1.4-nightly.20261027.3796\n\n'
-                'Link T3 Code to another machine.\n\n## What\'s Changed\n* feat(server): link to another environment',
+                'Link T3 Code to another machine.\n\n* feat(server): link to another environment',
             )
         with mock.patch('bot.summarize', return_value=None):
             self.assertEqual(
