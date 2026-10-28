@@ -2,6 +2,8 @@ import io
 import json
 import os
 import sqlite3
+import sys
+import types
 import urllib.error
 from pathlib import Path
 import tempfile
@@ -21,6 +23,7 @@ from bot import (
     is_pending,
     load_credentials,
     long_post_rejected,
+    nightly_text,
     oauth_signature,
     post_limit,
     redact,
@@ -28,11 +31,15 @@ from bot import (
     render_dry_run,
     settle_legacy,
     split_thread,
+    summarize,
     weight,
     post_release,
     execute,
 )
 import cloud_auth
+
+# Keep tests off the real Claude API.
+os.environ.pop('ANTHROPIC_API_KEY', None)
 
 
 class FakeGitHub:
@@ -753,6 +760,66 @@ class BotTests(unittest.TestCase):
         )
         connection.commit()
         connection.close()
+
+
+def fake_anthropic(text='', stop_reason='end_turn', error=None):
+    """A stand-in for the anthropic package that records the request."""
+    module = types.ModuleType('anthropic')
+    module.APIError = type('APIError', (Exception,), {})
+    module.requests = []
+
+    def create(**kwargs):
+        module.requests.append(kwargs)
+        if error:
+            raise module.APIError(error)
+        block = types.SimpleNamespace(type='text', text=text)
+        return types.SimpleNamespace(stop_reason=stop_reason, content=[block])
+
+    messages = types.SimpleNamespace(create=create)
+    module.Anthropic = lambda api_key: types.SimpleNamespace(beta=types.SimpleNamespace(messages=messages))
+    return module
+
+
+class SummaryTests(unittest.TestCase):
+    notes = '## What\'s Changed\n* feat(server): link to another environment by @a in https://github.com/pingdotgg/t3code/pull/1\n'
+    env = {'ANTHROPIC_API_KEY': 'test-key'}
+
+    def test_summary_goes_on_top_of_the_notes(self):
+        item = {'tag_name': 'v-nightly.1', 'body': self.notes}
+        with mock.patch('bot.summarize', return_value='Link T3 Code to another machine.'):
+            self.assertEqual(
+                nightly_text(item),
+                'Link T3 Code to another machine.\n\n## What\'s Changed\n* feat(server): link to another environment',
+            )
+        with mock.patch('bot.summarize', return_value=None):
+            self.assertEqual(nightly_text(item), release_text(item))
+
+    def test_summarize_sends_the_notes_and_returns_one_line(self):
+        module = fake_anthropic('Link T3 Code to another\nmachine.')
+        with mock.patch.dict(sys.modules, {'anthropic': module}):
+            self.assertEqual(summarize('notes', self.env), 'Link T3 Code to another machine.')
+        request = module.requests[0]
+        self.assertEqual(request['model'], 'claude-opus-5-5')
+        self.assertEqual(request['messages'], [{'role': 'user', 'content': 'notes'}])
+        self.assertEqual(request['fallbacks'], 'default')
+
+    def test_summarize_returns_none_instead_of_blocking_the_post(self):
+        self.assertIsNone(summarize('notes', {}))
+        cases = [
+            fake_anthropic(error='overloaded'),
+            fake_anthropic('Cut short', stop_reason='max_tokens'),
+            fake_anthropic(''),
+            fake_anthropic('x' * 201),
+            fake_anthropic('Thanks to @juliusmarminge for linked environments.'),
+        ]
+        for module in cases:
+            with mock.patch.dict(sys.modules, {'anthropic': module}):
+                self.assertIsNone(summarize('notes', self.env))
+
+    def test_summarize_strips_links_and_keeps_at_dash_mention(self):
+        module = fake_anthropic('Adds @-mention for machines, see https://t3.codes now.')
+        with mock.patch.dict(sys.modules, {'anthropic': module}):
+            self.assertEqual(summarize('notes', self.env), 'Adds @-mention for machines, see now.')
 
 
 if __name__ == '__main__':

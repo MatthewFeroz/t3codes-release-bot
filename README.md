@@ -8,6 +8,8 @@ Markdown links keep their label (`[docs](https://example.com)` becomes `docs`). 
 
 Author credits are removed too. X rejects a post with too many @mentions, and a nightly credits dozens of authors. A line such as `* fix by @user in https://github.com/.../pull/123` becomes `* fix`, and the New Contributors section is dropped. Other @mentions in the notes stay.
 
+Each post opens with a one-sentence summary of the nightly, then a blank line, then the notes. On X a long post shows only its first few lines before "Show more", so the summary is what most readers see. Claude (`claude-opus-5-5`, low effort) writes the sentence from the stripped notes. It must be under 200 characters with no link or @handle. If the `ANTHROPIC_API_KEY` repository secret is missing, the request fails, or the sentence breaks those rules, the error is logged and the nightly is posted without a summary. The summary is written once, when a nightly is first queued, and a dry run shows it.
+
 @t3codes has X Premium (since 27 Oct 2026), so each nightly is sent as one post on `POST /2/tweets`. Premium allows 25,000 weighted characters. The per-post cap is the repository variable `X_MAX_POST_CHARS` (Settings → Secrets and variables → Actions → Variables). The workflow passes it through as an environment variable of the same name. When that variable is unset, the cap is 25000. Set it to `280` if Premium lapses.
 
 Notes longer than the cap are split on line boundaries into as few replies as possible. The pieces join back to the stripped notes. A single line longer than the cap is split on a space, then a hard break. If a piece would still be over the cap, the job fails before sending it. If a piece would still contain a URL after stripping, the job fails before the request is sent.
@@ -20,7 +22,7 @@ The job checks out `main` and commits `.bot-state/posted.json` before and after 
 
 ## Secrets
 
-Add these four repository secrets (not variables) while logged in to GitHub as the owner of this repo:
+Add these five repository secrets (not variables) while logged in to GitHub as the owner of this repo:
 
 **Settings → Secrets and variables → Actions → New repository secret**
 
@@ -30,6 +32,7 @@ Add these four repository secrets (not variables) while logged in to GitHub as t
 | `X_API_KEY_SECRET` | API Key Secret (Consumer Secret) |
 | `X_ACCESS_TOKEN` | Access Token |
 | `X_ACCESS_TOKEN_SECRET` | Access Token Secret |
+| `ANTHROPIC_API_KEY` | Not from X: an Anthropic API key for the summary line |
 
 The old `X_VAULT_KEY` secret is not used.
 
