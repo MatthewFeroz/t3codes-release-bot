@@ -98,7 +98,11 @@ A mention gets a reply only if all of these hold:
 - After handles and links are removed, it contains a breakage phrase such as `broken`, `crash`, `stuck`, `error`, or `won't start`. It does not say the problem is fixed (`works now`, `fixed`, `nvm`) and does not mention triage.
 - The author has not had a reply or a queued reply in the last 7 days, and the conversation has not been answered.
 
-There are three wordings. Each is 180 characters with no link, and they rotate because X rejects duplicate text. A reply costs $0.01, the summoned-reply rate. Reading a mention costs $0.001.
+Every reply is the same 153 characters, with no link:
+
+> Run npx t3 triage in a terminal. Your coding agent reads your T3 Code logs, checks known issues for your version, and writes up the GitHub issue for you.
+
+The bot does not file a bug report itself. A post rarely has enough detail for one, and `npx t3 triage` collects the logs and versions and writes the issue on the user's machine. If X rejects the reply as duplicate content, that mention is marked failed and the run fails; nothing else is sent. A reply costs $0.01, the summoned-reply rate. Reading a mention costs $0.001.
 
 Modes:
 
@@ -118,6 +122,23 @@ gh workflow run replies.yml --repo MatthewFeroz/t3codes-release-bot -f mode=queu
 ```
 
 Locally, `python replies.py dry-run` reads mentions with the four X secrets from the environment and posts nothing. `python replies.py status` lists queued mentions.
+
+### Review issues
+
+In `queue` mode, each match also gets a GitHub issue in this repository, labeled `triage-reply`. The issue links the post, quotes it in a code block (so its @handles do not ping GitHub users), names the matched phrase, and shows the exact reply @t3codes will send.
+
+- Add the `approve` label to send that reply. The bot replies on X, comments the reply link on the issue, and closes it.
+- Close the issue to skip the mention. It is never answered.
+
+Labeling or closing a review issue starts the workflow at once. That run reads no mentions. Every run checks all open review issues, so if GitHub drops one run, the next run still acts on the decision.
+
+The issues are opened, read, commented on, and closed through [Merge Agent Handler](https://docs.merge.dev/merge-agent-handler/overview.md), not with a token in this repository. Agent Handler holds the GitHub credential and records each call in its Tool Call Logs. To set it up:
+
+1. In the [Agent Handler dashboard](https://ah.merge.dev), create a Registered User and connect GitHub for it, with access to this repository.
+2. Create a Tool Pack with only `github__create_issue`, `github__get_issue`, `github__create_issue_comment`, and `github__update_issue`.
+3. Create an access key, then add three repository secrets: `AGENT_HANDLER_API_KEY`, `AGENT_HANDLER_TOOL_PACK_ID`, and `AGENT_HANDLER_REGISTERED_USER_ID`.
+
+Without those secrets, `queue` mode still records matches, and you approve them by post ID with the commands above.
 
 ## Retired publisher
 

@@ -9,7 +9,8 @@ import urllib.parse
 from bot import ApiError, weight
 from xurls import has_detectable_url
 import replies
-from replies import REPLIES, ReplyStore, evaluate, execute, problem_phrase, summoned
+from agent_handler import AgentHandlerError
+from replies import REPLIES, ReplyStore, ReviewQueue, evaluate, execute, problem_phrase, review_body, summoned
 
 NOW = dt.datetime(2026, 10, 27, 22, 0, tzinfo=dt.timezone.utc)
 ME = '99'
@@ -90,7 +91,10 @@ class ReplyTests(unittest.TestCase):
             self.assertLessEqual(weight(text), 280)
             self.assertFalse(has_detectable_url(text), text)
             self.assertNotIn('@', text)
-        self.assertEqual(len(set(REPLIES)), len(REPLIES))
+        self.assertEqual(REPLIES, (
+            'Run npx t3 triage in a terminal. Your coding agent reads your T3 Code logs, checks known issues '
+            'for your version, and writes up the GitHub issue for you.',
+        ))
 
     def test_problem_phrases_match_breakage_reports(self):
         for text in (
@@ -189,7 +193,7 @@ class ReplyTests(unittest.TestCase):
         self.assertEqual([parent for _, parent in client.created], ['11', '13', '14'])
         self.assertEqual(store.data['mentions']['15']['status'], 'queued')
         self.assertNotIn('12', store.data['mentions'])
-        self.assertEqual(len({text for text, _ in client.created}), 3)
+        self.assertEqual({text for text, _ in client.created}, {REPLIES[0]})
 
     def test_auto_respects_daily_cap(self):
         store = self.store()
@@ -215,14 +219,16 @@ class ReplyTests(unittest.TestCase):
                                       store=self.store())
         self.assertNotIn('12', store.data['mentions'])
 
-    def test_duplicate_rejection_tries_the_next_wording(self):
+    def test_duplicate_rejection_fails_loudly_and_sends_nothing_else(self):
         self.run_mode('queue', [[mention(11, '@t3codes broken')]])
         client = FakeX([[]])
         client.fail = [ApiError(403, 'X HTTP 403: You are not allowed to create a Tweet with duplicate content.')]
-        store = self.store()
-        execute(store, client, 'queue', approve=['11'], at=NOW, sleep=lambda _: None)
-        self.assertEqual(client.created, [(REPLIES[1], '11')])
-        self.assertEqual(store.data['mentions']['11']['status'], 'replied')
+        with self.assertRaises(RuntimeError):
+            execute(self.store(), client, 'queue', approve=['11'], at=NOW, sleep=lambda _: None)
+        self.assertEqual(client.created, [])
+        row = json.loads(self.path.read_text())['mentions']['11']
+        self.assertEqual(row['status'], 'failed')
+        self.assertIn('duplicate', row['reason'])
 
     def test_x_refusal_is_recorded_and_fails_the_run_loudly(self):
         self.run_mode('queue', [[mention(11, '@t3codes broken')]])
@@ -263,6 +269,144 @@ class ReplyTests(unittest.TestCase):
         with mock.patch.dict('os.environ', {'REPLY_MODE': 'auto', 'GITHUB_ACTIONS': ''}):
             with self.assertRaises(SystemExit):
                 replies.main(['run'])
+
+
+class FakeAgentHandler:
+    """GitHub issues in memory, reached the way ReviewQueue calls Agent Handler."""
+
+    REQUIRED = {
+        'github__create_issue': {'owner', 'repo', 'title', 'body', 'assignee', 'assignees', 'milestone', 'labels', 'type'},
+        'github__get_issue': {'owner', 'repo', 'issue_number'},
+        'github__create_issue_comment': {'owner', 'repo', 'issue_number', 'body'},
+        'github__update_issue': {'owner', 'repo', 'issue_number', 'title', 'body', 'state', 'state_reason', 'assignee',
+                                 'assignees', 'milestone', 'labels', 'type', 'duplicate_of_issue_id',
+                                 'remove_milestone', 'remove_assignees'},
+    }
+
+    def __init__(self):
+        self.issues = {}
+        self.calls = []
+        self.fail = set()
+
+    def call(self, name, tool_input):
+        self.calls.append((name, tool_input))
+        self.assertion = self.REQUIRED[name] - set(tool_input)
+        if self.assertion:
+            raise AssertionError(f'{name} missing {self.assertion}')
+        if name in self.fail:
+            raise AgentHandlerError(f'{name} failed: boom')
+        if name == 'github__create_issue':
+            number = len(self.issues) + 1
+            self.issues[number] = {'number': number, 'state': 'open', 'labels': [{'name': label} for label in tool_input['labels']],
+                                   'title': tool_input['title'], 'body': tool_input['body'], 'comments': []}
+            return {'number': number}
+        issue = self.issues[tool_input['issue_number']]
+        if name == 'github__get_issue':
+            return issue
+        if name == 'github__create_issue_comment':
+            issue['comments'].append(tool_input['body'])
+            return {'id': 1}
+        issue['state'] = tool_input['state'] or issue['state']
+        return issue
+
+    def label(self, number, name):
+        self.issues[number]['labels'].append({'name': name})
+
+
+class ReviewIssueTests(unittest.TestCase):
+    def setUp(self):
+        self.dir = tempfile.TemporaryDirectory()
+        self.path = Path(self.dir.name) / 'replies.json'
+        self.ah = FakeAgentHandler()
+        self.review = ReviewQueue(self.ah, 'MatthewFeroz/t3codes-release-bot')
+
+    def tearDown(self):
+        self.dir.cleanup()
+
+    def run_mode(self, mode, pages, scan=True, **kwargs):
+        client = FakeX(pages)
+        store = ReplyStore(self.path)
+        execute(store, client, mode, at=NOW, sleep=lambda _: None, review=self.review, scan=scan, **kwargs)
+        return store, client
+
+    def test_queue_opens_one_review_issue_per_match(self):
+        store, client = self.run_mode('queue', [[
+            mention(11, '@theo @t3codes why is this broken'),
+            mention(12, '@t3codes nice release', author='6'),
+        ]])
+        self.assertEqual(client.created, [])
+        self.assertEqual(list(self.ah.issues), [1])
+        issue = self.ah.issues[1]
+        self.assertEqual(store.data['mentions']['11']['issue'], 1)
+        self.assertEqual([label['name'] for label in issue['labels']], ['triage-reply'])
+        self.assertNotIn('@', issue['title'])
+        self.assertIn('https://x.com/alice/status/11', issue['body'])
+        self.assertIn(REPLIES[0], issue['body'])
+        _, again = self.run_mode('queue', [[]])
+        self.assertEqual(list(self.ah.issues), [1])
+
+    def test_issue_body_keeps_handles_out_of_reach_of_github_mentions(self):
+        body = review_body({'tweet_id': '11', 'username': 'alice', 'phrase': 'broken', 'draft': REPLIES[0]},
+                           '@theo @t3codes ```why``` is this broken')
+        outside_code = body.split('```text')[0] + ''.join(part.split('```', 1)[-1] for part in body.split('```text')[1:])
+        self.assertNotRegex(outside_code.replace('`@t3codes`', ''), r'(?<![\w`/])@\w')
+        self.assertNotIn('```why```', body)
+
+    def test_dry_run_and_auto_open_no_issues(self):
+        self.run_mode('dry-run', [[mention(11, '@t3codes broken')]])
+        self.run_mode('auto', [[mention(21, '@t3codes crashes', author='6')]])
+        self.assertEqual(self.ah.issues, {})
+
+    def test_approve_label_sends_the_drafted_reply_then_closes_the_issue(self):
+        self.run_mode('queue', [[mention(11, '@t3codes broken'), mention(13, '@t3codes crashes', author='6')]])
+        drafted = self.ah.issues[2]['body']
+        self.ah.label(2, 'approve')
+        store, client = self.run_mode('queue', [], scan=False)
+        self.assertEqual(len(client.created), 1)
+        text, parent = client.created[0]
+        self.assertEqual(parent, '13')
+        self.assertIn(text, drafted)
+        self.assertEqual(store.data['mentions']['13']['status'], 'replied')
+        self.assertEqual(self.ah.issues[2]['state'], 'closed')
+        self.assertIn('https://x.com/t3codes/status/1001', self.ah.issues[2]['comments'][0])
+        self.assertEqual(store.data['mentions']['11']['status'], 'queued')
+        _, again = self.run_mode('queue', [], scan=False)
+        self.assertEqual(again.created, [])
+
+    def test_closing_the_issue_rejects_the_mention(self):
+        self.run_mode('queue', [[mention(11, '@t3codes broken')]])
+        self.ah.issues[1]['state'] = 'closed'
+        store, client = self.run_mode('queue', [], scan=False)
+        self.assertEqual(client.created, [])
+        self.assertEqual(store.data['mentions']['11']['status'], 'rejected')
+
+    def test_scan_off_reads_no_mentions(self):
+        _, client = self.run_mode('queue', [[mention(11, '@t3codes broken')]], scan=False)
+        self.assertEqual([url for url in client.urls if '/mentions' in url], [])
+
+    def test_failed_issue_open_is_loud_and_retried_next_run(self):
+        self.ah.fail.add('github__create_issue')
+        with self.assertRaisesRegex(RuntimeError, 'review issue'):
+            self.run_mode('queue', [[mention(11, '@t3codes broken')]])
+        saved = json.loads(self.path.read_text())
+        self.assertEqual(saved['mentions']['11']['status'], 'queued')
+        self.assertNotIn('issue', saved['mentions']['11'])
+        self.ah.fail.clear()
+        store, _ = self.run_mode('queue', [[]])
+        self.assertEqual(store.data['mentions']['11']['issue'], 1)
+
+    def test_failed_close_is_retried_without_sending_again(self):
+        self.run_mode('queue', [[mention(11, '@t3codes broken')]])
+        self.ah.label(1, 'approve')
+        self.ah.fail.add('github__update_issue')
+        with self.assertRaises(RuntimeError):
+            self.run_mode('queue', [], scan=False)
+        self.ah.fail.clear()
+        store, client = self.run_mode('queue', [], scan=False)
+        self.assertEqual(client.created, [])
+        self.assertEqual(self.ah.issues[1]['state'], 'closed')
+        self.assertEqual(len(self.ah.issues[1]['comments']), 1)
+        self.assertTrue(store.data['mentions']['11']['issue_closed'])
 
 
 if __name__ == '__main__':
