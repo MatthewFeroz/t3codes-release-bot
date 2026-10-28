@@ -284,6 +284,67 @@ def post_text(text):
     return _EMPTY_CONTRIBUTORS.sub('', text)
 
 
+SUMMARY_MODEL = 'claude-opus-5-5'
+SUMMARY_LIMIT = 200
+SUMMARY_PROMPT = (
+    'You write the opening line of a post on X from @t3codes announcing a T3 Code nightly build. '
+    'T3 Code is an app for running coding agents such as Codex and Claude Code. '
+    'The user message is the release notes for the build. '
+    f'Reply with one plain sentence, under {SUMMARY_LIMIT} characters, that tells a T3 Code user '
+    'the most notable changes in this build. Name concrete changes, not counts. '
+    'No links, @handles, hashtags, emoji, quotes, or markdown. Reply with the sentence only.'
+)
+_SUMMARY_HANDLE = re.compile(r'(?<![\w@])@[A-Za-z0-9_]')
+
+
+def summarize(notes, env=None):
+    """Return one plain sentence summing up the nightly, or None.
+
+    A post on X shows its first few lines before "Show more", so the summary
+    goes on top. Any failure posts the notes without one instead of holding
+    the nightly back.
+    """
+    env = os.environ if env is None else env
+    api_key = (env.get('ANTHROPIC_API_KEY') or '').strip()
+    if not api_key:
+        LOG.warning('ANTHROPIC_API_KEY is not set. Posting the nightly without a summary.')
+        return None
+    import anthropic
+
+    try:
+        response = anthropic.Anthropic(api_key=api_key).beta.messages.create(
+            model=SUMMARY_MODEL,
+            max_tokens=16000,
+            betas=['server-side-fallback-2026-07-01'],
+            fallbacks='default',
+            output_config={'effort': 'low'},
+            system=SUMMARY_PROMPT,
+            messages=[{'role': 'user', 'content': notes}],
+        )
+    except anthropic.APIError as exc:
+        LOG.error('Summary request failed. Posting the nightly without a summary. %s', exc)
+        return None
+    if response.stop_reason != 'end_turn':
+        LOG.error('Summary stopped with %s. Posting the nightly without a summary.', response.stop_reason)
+        return None
+    sentence = ' '.join(''.join(block.text for block in response.content if block.type == 'text').split())
+    try:
+        sentence = post_text(sentence).strip()
+    except RuntimeError:
+        sentence = ''
+    if not sentence or weight(sentence) > SUMMARY_LIMIT or _SUMMARY_HANDLE.search(sentence):
+        LOG.error('Summary was empty, too long, or had a link or handle: %r. Posting without it.', sentence)
+        return None
+    return sentence
+
+
+def nightly_text(release):
+    """Return the text to post: a one-sentence summary, a blank line, then the notes."""
+    notes = release_text(release)
+    summary = summarize(notes)
+    return f'{summary}\n\n{notes}' if summary else notes
+
+
 def load_credentials(env=None):
     env = os.environ if env is None else env
     missing = [name for name in SECRET_NAMES if not (env.get(name) or '').strip()]
@@ -616,7 +677,7 @@ def post_release(store, client, user_id, release, sleep):
     release_id = str(release['id'])
     row = store.data['releases'].get(release_id)
     if not row or row.get('status') != 'in_progress':
-        text = release_text(release)
+        text = nightly_text(release)
         chunks = split_thread(text)
         if ''.join(chunks) != text:
             raise RuntimeError(f'{release["tag_name"]}: thread split changed the notes. Nothing was posted.')
@@ -718,7 +779,7 @@ def render_dry_run(pending):
         lines.append('No new nightly releases.')
         return '\n'.join(lines) + '\n'
     for release in pending:
-        text = release_text(release)
+        text = nightly_text(release)
         chunks = split_thread(text)
         lines.append(
             f'{release["tag_name"]}: {len(chunks)} post(s), {weight(text)} weighted characters (limit {post_limit()}).'

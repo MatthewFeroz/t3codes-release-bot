@@ -48,4 +48,5 @@ jobs:
           BOT_REMOTE_STATE: ${{ inputs.dry_run == true && '0' || '1' }}
           DRY_RUN: ${{ inputs.dry_run == true && 'true' || 'false' }}
           X_MAX_POST_CHARS: ${{ vars.X_MAX_POST_CHARS }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
         run: python bot.py run
